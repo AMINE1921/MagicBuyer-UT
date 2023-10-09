@@ -1,16 +1,10 @@
 # FUT AutoBuyer
 
-[![Contributors][contributors-shield]][contributors-url]
-[![Forks][forks-shield]][forks-url]
-[![Stargazers][stars-shield]][stars-url]
-[![Issues][issues-shield]][issues-url]
-[![Total Downloads](https://img.shields.io/github/downloads/ckalgos/FUT-Auto-Buyer/total.svg)]()
-
 <p align="center"> 
-  <h3 align="center">FUT AutoBuyer</h3>
+  <h3 align="center">UT MagicBuyer</h3>
 
   <p align="center">
-    Autobuyer from FIFA Ultimate Team Webapp!
+    Autobuyer from EA FC Ultimate Team Webapp!
     <br />  
     <br /> 
     <a href="https://github.com/ckalgos/FUT-Auto-Buyer/issues">Report Bug</a>
@@ -34,37 +28,17 @@
 ## Table of Contents
 
 - [Installation](#installation)
-- [AutoSolve Captcha SetUp](#Captcha)
-- [Usage](#Usage)
-- [Prerequisites](#prerequisites)
-- [Telegram Installation Guide](#Telegram-Installation-Guide)
-- [Roadmap](#Roadmap)
-- [Developer Guide](#Developer-Guide)
-- [Contributing](#contributing)
-- [Contact](#contact)
 
 <!-- installation -->
 
 ## Installation
 
 - Add Tamper Monkey Extenstion to your Browser - [Link](https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo?hl=en-GB).
-- Click on fut-auto-buyer.user.js from - [Latest Release](https://github.com/ckalgos/FUT-Auto-Buyer/releases/).
+- Click on fut-auto-buyer.user.js from - [Latest Release](https://github.com/AMINE1921/MagicBuyer-UT/releases/).
 - Then click on Install/Update.
 - Installation And Demo - [Video Guide](https://www.youtube.com/watch?v=WATch4hxhtk).
 
 Now in Ultimate Team Web App, new menu will be added as AutoBuyer.
-
-Using mobile? No problem, you can get the app for your os below
-
-|                                                           Android                                                            |                                                        iOS                                                         |
-| :--------------------------------------------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------------------------------: |
-| [<img src="storeImg/google-play-badge.png" height="50">](https://play.google.com/store/apps/details?id=com.fut.market.alert) | [<img src="storeImg/appstore-badge.png" height="50">](https://apps.apple.com/us/app/fut-market-alert/id1590505179) |
-
-## Captcha
-
-### AutoSolve Captcha Setup
-
-- Follow this [video](https://www.youtube.com/watch?v=9p_IMe52LBo) if you are not sure how to set it up.
 
 <!-- Usage -->
 
@@ -213,69 +187,3 @@ Using mobile? No problem, you can get the app for your os below
 
 - To use this tool, the user should have access to the transfer market.
 - Hence play the required number of games to get access to the transfer market before trying this tool.
-
-<!-- Telegram -->
-
-## Telegram-Installation-Guide
-
-- Install Telegram
-- Add @BotFather as a contact in telegram
-- Send BotFather /newbot
-- Type in your individual details like name etc.
-- Follow the prompts, and finally copy it’s HTTP API Token
-- Add your bot as a contact
-- Send /start to your bot
-- Visit this URL. https://api.telegram.org/botXXX:YYYYY/getUpdates (replace the XXX: YYYYY with your BOT HTTP API Token you just got from the Telegram B otFather)
-- Here you can find your chat id (this process can take some minutes) --> e.g. "chat":{"id":133333338,"first_name":"John","last_name":"Player"
-- Now you can add your bot token and chat id at the notification settings inside the bot GUI (near the Bottom)
-
-<!-- ROADMAP -->
-
-## Roadmap
-
-See the [open issues](https://github.com/ckalgos/FUT-Auto-Buyer/issues) for a list of proposed features (and known issues).
-
-## 💬 Community
-
-If you are looking for help or any new feature request, join our discord group
-
-<img src="https://img.shields.io/discord/768336764447621122?color=green&label=Discord&logo=discord&logoColor=white">
-
-<a href="https://discord.gg/cktHYmp">Join</a>
-
-<!-- DevGuide -->
-
-## Developer-Guide
-
-<a href="https://discord.gg/cktHYmp">Join this discord channel</a>
-
-<!-- CONTRIBUTING -->
-
-## Contributing
-
-Any contributions you make are **greatly appreciated**.
-
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/FeatureBranch`)
-3. Commit your Changes (`git commit -m 'Add some FeatureBranch'`)
-4. Push to the Branch (`git push origin feature/FeatureBranch`)
-5. Open a Pull Request
-
-<!-- CONTACT -->
-
-## Contact
-
-Instagram - [@Instagram](https://www.instagram.com/ckalgos/) - ckalgos@gmail.com
-
-Project Link: [https://github.com/ckalgos/FUT-Auto-Buyer](https://github.com/ckalgos/FUT-Auto-Buyer)
-
-<!-- MARKDOWN LINKS & IMAGES -->
-
-[contributors-shield]: https://img.shields.io/github/contributors/ckalgos/FUT-Auto-Buyer.svg?style=flat-square
-[contributors-url]: https://github.com/ckalgos/FUT-Auto-Buyer/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/ckalgos/FUT-Auto-Buyer.svg?style=flat-square
-[forks-url]: https://github.com/ckalgos/FUT-Auto-Buyer/network/members
-[stars-shield]: https://img.shields.io/github/stars/ckalgos/FUT-Auto-Buyer.svg?style=flat-square
-[stars-url]: https://github.com/ckalgos/FUT-Auto-Buyer/stargazers
-[issues-shield]: https://img.shields.io/github/issues/ckalgos/FUT-Auto-Buyer.svg?style=flat-square
-[issues-url]: https://github.com/ckalgos/FUT-Auto-Buyer/issues
