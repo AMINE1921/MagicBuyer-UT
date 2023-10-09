@@ -7,11 +7,10 @@
     Autobuyer from EA FC Ultimate Team Webapp!
     <br />  
     <br /> 
-    <a href="https://github.com/ckalgos/FUT-Auto-Buyer/issues">Report Bug</a>
+    <a href="https://github.com/AMINE1921/MagicBuyer-UT/issues">Report Bug</a>
     ·
-    <a href="https://github.com/ckalgos/FUT-Auto-Buyer/issues">Request Feature</a>
+    <a href="https://github.com/AMINE1921/MagicBuyer-UT/issues">Request Feature</a>
     ·
-  <a href="https://www.youtube.com/channel/UC5eLkjmLU2TcE4oiJM9PsyA?sub_confirmation=1">Subscribe</a>
   
   # Must Read :no_entry_sign:
   
