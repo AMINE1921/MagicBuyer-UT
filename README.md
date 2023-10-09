@@ -10,7 +10,6 @@
     <a href="https://github.com/AMINE1921/MagicBuyer-UT/issues">Report Bug</a>
     ·
     <a href="https://github.com/AMINE1921/MagicBuyer-UT/issues">Request Feature</a>
-    ·
   
   # Must Read :no_entry_sign:
   
@@ -27,6 +26,8 @@
 ## Table of Contents
 
 - [Installation](#installation)
+- [Usage](#Usage)
+- [Prerequisites](#prerequisites)
 
 <!-- installation -->
 
