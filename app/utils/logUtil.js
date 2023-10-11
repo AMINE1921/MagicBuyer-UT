@@ -61,7 +61,7 @@ export const writeToLog = function (message, log, player, type) {
                 player
                   ? `<img
                   style="width:30%; padding-left: 15px;"
-                  src="https://www.ea.com/ea-sports-fc/ultimate-team/web-app/content/23DF3AC5-9539-438B-8414-146FAFDE3FF2/2023/fut/items/images/mobile/portraits/${player?._metaData?.id}.png"
+                  src="https://www.ea.com/ea-sports-fc/ultimate-team/web-app/content/24B23FDE-7835-41C2-87A2-F453DFDB2E82/2024/fut/items/images/mobile/portraits/${player?._metaData?.id}.png"
                 />`
                   : ""
               }

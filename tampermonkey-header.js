@@ -1,9 +1,9 @@
 module.exports = {
   headers: {
-    name: "FUT Auto Buyer - FR Version",
+    name: "MagicBuyer-UT",
     namespace: "http://tampermonkey.net/",
-    version: "1.4.5",
-    description: "FUT Auto Buyer - French version",
+    version: "1.0.0",
+    description: "UT Auto Buyer - French version",
     author: "AMINE1921",
     match: [
       "https://www.ea.com/*/ea-sports-fc/ultimate-team/web-app/*",
@@ -21,13 +21,13 @@ module.exports = {
     ],
     require: [
       "https://code.jquery.com/jquery-3.6.1.min.js",
-      "https://raw.githubusercontent.com/ckalgos/FUT-Auto-Buyer/main/external/discord.11.4.2.min.js",
-      "https://github.com/ckalgos/fut-trade-enhancer/releases/latest/download/fut-trade-enhancer.user.js",
+      // "https://raw.githubusercontent.com/ckalgos/FUT-Auto-Buyer/main/external/discord.11.4.2.min.js",
+      // "https://github.com/ckalgos/fut-trade-enhancer/releases/latest/download/fut-trade-enhancer.user.js",
     ],
-    updateURL:
-      "https://github.com/ckalgos/fut-auto-buyer/releases/latest/download/fut-auto-buyer.user.js",
-    downloadURL:
-      "https://github.com/ckalgos/fut-auto-buyer/releases/latest/download/fut-auto-buyer.user.js",
+    // updateURL:
+    //   "https://github.com/ckalgos/fut-auto-buyer/releases/latest/download/fut-auto-buyer.user.js",
+    // downloadURL:
+    //   "https://github.com/ckalgos/fut-auto-buyer/releases/latest/download/fut-auto-buyer.user.js",
     noFrame: true,
   },
 };

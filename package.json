@@ -1,5 +1,5 @@
 {
-  "name": "fut-auto-buyer",
+  "name": "MagicBuyer-UT",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -11,9 +11,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ckalgos/fut-auto-buyer.git"
+    "url": "https://github.com/AMINE1921/MagicBuyer-UT.git"
   },
-  "author": "Ck Algos",
+  "author": "AMINE1921",
   "license": "ISC",
   "dependencies": {
     "webpack": "^5.47.1"
