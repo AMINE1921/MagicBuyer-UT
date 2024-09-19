@@ -58,7 +58,7 @@ export const searchTransferMarket = function (buyerSetting) {
 
     sendPinEvents("Transfer Market Search");
     updateRequestCount();
-    let searchCriteria = this._viewmodel.searchCriteria;
+    let searchCriteria = this.viewmodel.searchCriteria;
     if (useRandMinBid)
       searchCriteria.minBid = roundOffPrice(
         getRandNum(0, buyerSetting["idAbRandMinBidInput"])

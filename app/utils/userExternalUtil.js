@@ -96,15 +96,15 @@ export const loadFilter = async function (currentFilterName, isTransferSearch) {
     searchCriteria: { criteria, playerData, buyerSettings },
   } = JSON.parse(filterSetting);
 
-  this._viewmodel.resetSearch();
+  this.viewmodel.resetSearch();
   this.viewDidAppear();
 
-  this._viewmodel.playerData = {};
-  Object.assign(this._viewmodel.searchCriteria, criteria);
-  Object.assign(this._viewmodel.playerData, playerData);
+  this.viewmodel.playerData = {};
+  Object.assign(this.viewmodel.searchCriteria, criteria);
+  Object.assign(this.viewmodel.playerData, playerData);
 
-  if ($.isEmptyObject(this._viewmodel.playerData)) {
-    this._viewmodel.playerData = null;
+  if ($.isEmptyObject(this.viewmodel.playerData)) {
+    this.viewmodel.playerData = null;
   }
 
   this.viewDidAppear();
