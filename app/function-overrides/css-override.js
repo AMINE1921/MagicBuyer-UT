@@ -1,13 +1,22 @@
+let cssInjected = false;
+
 export const cssOverride = () => {
+  if (cssInjected) {
+    return;
+  }
+  const host = document.head || document.documentElement;
+  if (!host) {
+    return;
+  }
+  cssInjected = true;
   const style = document.createElement("style");
-  $(".ui-orientation-warning").css("display", "none");
-  $(".ut-fifa-header-view").css("display", "none");
+  const warning = document.querySelector(".ui-orientation-warning");
+  if (warning) {
+    warning.style.setProperty("display", "none", "important");
+  }
   style.innerText = `
   .buyer-header {
       font-size: 20px !important;
-  }
-  .with-fifa-header .ut-root-view {
-    height: 100%;
   }
   .buyer-settings {
       width: 100%;
@@ -55,7 +64,7 @@ export const cssOverride = () => {
     width: 100%;
   }
   .autoBuyerLog {
-    font-size: ${!isPhone() ? "15px" : "13px"}; 
+    font-size: ${typeof isPhone === "function" && isPhone() ? "13px" : "15px"}; 
     height: 50%;
   }
   .cardPalyerLi {
@@ -180,7 +189,7 @@ export const cssOverride = () => {
     height: 10px; 
     width: 100px; 
     background: #888; 
-    margin: ${isPhone() ? "auto 5px" : "5px 0px 5px 5px"};
+    margin: ${typeof isPhone === "function" && isPhone() ? "auto 5px" : "5px 0px 5px 5px"};
   }
   .stats-fill {
     background: #000; 
@@ -272,7 +281,7 @@ export const cssOverride = () => {
   }
   `;
   style.innerText += getScrollBarStyle();
-  document.head.appendChild(style);
+  host.appendChild(style);
 };
 
 const getScrollBarStyle = () => {

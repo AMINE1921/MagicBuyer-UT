@@ -1,3 +1,4 @@
+import { getFutShortYear } from "../../app.constants";
 import { sendRequest } from "../../utils/networkUtil";
 import { getUserPlatform } from "../../utils/userUtil";
 import { sendExternalRequest } from "../externalRequest";
@@ -39,7 +40,7 @@ const getPlayerPrices = async (player, result) => {
       return;
     }
     const futWizResponse = await sendRequest(
-      `https://www.futwiz.com/en/app/sold23/${filteredPlayer[0].lineid}/console`,
+      `https://www.futwiz.com/en/app/sold${getFutShortYear()}/${filteredPlayer[0].lineid}/console`,
       "GET",
       `${player.definitionId}_fetchFutWizPlayerPrices`
     );
@@ -73,7 +74,7 @@ const getMatchingPlayer = (item) => {
         : item._staticData.name
     );
     sendExternalRequest({
-      url: `https://www.futwiz.com/en/searches/player23/${playerName}`,
+      url: `https://www.futwiz.com/en/searches/player${getFutShortYear()}/${playerName}`,
       method: "GET",
       identifier: `${item.definitionId}_getFutWizPlayerUrl`,
       onload: (res) => {

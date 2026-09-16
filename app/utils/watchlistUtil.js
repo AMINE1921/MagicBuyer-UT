@@ -4,6 +4,7 @@ import { formatString, getRandNum, wait } from "./commonUtil";
 import { getSellPriceFromFutBin } from "./futbinUtil";
 import { writeToLog } from "./logUtil";
 import { sendPinEvents } from "./notificationUtil";
+import { getPageServices, syncPageGlobals } from "./pageWindow";
 import { getBuyBidPrice, getSellBidPrice } from "./priceUtils";
 import { buyPlayer } from "./purchaseUtil";
 
@@ -13,11 +14,23 @@ export const watchListUtil = function (buyerSetting) {
   sendPinEvents("Transfer Targets - List View");
 
   return new Promise((resolve) => {
+    syncPageGlobals();
+    const services = getPageServices();
+    if (!services || !services.Item || typeof services.Item.requestWatchedItems !== "function") {
+      resolve();
+      return;
+    }
+    const watchdog = setTimeout(resolve, 10000);
+    const done = () => {
+      clearTimeout(watchdog);
+      resolve();
+    };
+    try {
     services.Item.clearTransferMarketCache();
 
     services.Item.requestWatchedItems().observe(this, function (t, response) {
-      let bidPrice = buyerSetting["idAbMaxBid"];
-      let sellPrice = buyerSetting["idAbSellPrice"];
+      let bidPrice = parseInt(buyerSetting["idAbMaxBid"], 10) || 0;
+      let sellPrice = parseInt(buyerSetting["idAbSellPrice"], 10) || 0;
 
       let activeItems = response.response.items.filter(function (item) {
         return !!item._auction;
@@ -41,7 +54,7 @@ export const watchListUtil = function (buyerSetting) {
 
               const userWatchItems = getValue("userWatchItems");
 
-              if (isAutoBuyerActive && bidPrice) {
+              if (isAutoBuyerActive && bidPrice > 0) {
                 let outBidItems = watchResponse.response.items.filter(function (
                   item
                 ) {
@@ -148,12 +161,24 @@ export const watchListUtil = function (buyerSetting) {
         }
       );
     });
+    } catch (e) {
+      clearTimeout(watchdog);
+      resolve();
+    }
   });
 };
 
 export const addUserWatchItems = () => {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
+    syncPageGlobals();
+    const services = getPageServices();
+    if (!services || !services.Item || typeof services.Item.requestWatchedItems !== "function") {
+      resolve();
+      return;
+    }
+    const watchdog = setTimeout(resolve, 8000);
     services.Item.requestWatchedItems().observe(this, function (t, response) {
+      clearTimeout(watchdog);
       if (response.success) {
         const bidItemsByFilter = getValue("filterBidItems") || new Map();
         const botBiddedTrades = new Set(

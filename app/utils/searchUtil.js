@@ -16,12 +16,30 @@ import { updateRequestCount } from "./statsUtil";
 import { sortPlayers } from "./playerUtil";
 import { getStatsValue } from "../handlers/statsProcessor";
 import { fetchPrices } from "../services/datasource";
+import { sanitizeEaSearchCriteria, toEaSearchDto } from "../ui/buyerContext";
+import { getPageServices, syncPageGlobals } from "./pageWindow";
 
 const currentBids = new Set();
 
+const toNumber = (value) => {
+  const n = parseInt(String(value == null ? "" : value).replace(/[^\d]/g, ""), 10);
+  return n > 0 ? n : 0;
+};
+
 export const searchTransferMarket = function (buyerSetting) {
   return new Promise((resolve) => {
-    const expiresIn = convertToSeconds(buyerSetting["idAbItemExpiring"]);
+    const finish = (message, type) => {
+      if (message) {
+        writeToLog(message, idProgressAutobuyer, null, type || "warning");
+      }
+      resolve();
+    };
+    let searchWatchdog;
+    try {
+    syncPageGlobals();
+    const services = getPageServices() || {};
+    buyerSetting = buyerSetting || {};
+    const expiresIn = convertToSeconds(buyerSetting["idAbItemExpiring"] || "1H");
     const useRandMinBid = buyerSetting["idAbRandMinBidToggle"];
     const useRandMinBuy = buyerSetting["idAbRandMinBuyToggle"];
     const futBinBuyPercent = buyerSetting["idBuyFutBinPercent"] || 100;
@@ -43,40 +61,69 @@ export const searchTransferMarket = function (buyerSetting) {
       (buyerSetting["idAddIgnorePlayersList"] || []).map(({ id }) => id)
     );
     const dataSource = getDataSource();
-    let bidPrice = buyerSetting["idAbMaxBid"];
-    let userBuyNowPrice = buyerSetting["idAbBuyPrice"];
-    let useFutBinPrice =
-      buyerSetting["idBuyFutBinPrice"] || buyerSetting["idAbBidFutBin"];
+    const criteriaSource =
+      (this && this.viewmodel && this.viewmodel.searchCriteria) ||
+      getValue("lastSearchCriteria") ||
+      {};
+    let bidPrice = toNumber(buyerSetting["idAbMaxBid"]);
+    let userBuyNowPrice = toNumber(buyerSetting["idAbBuyPrice"]);
+    const useFutBinPrice = !!buyerSetting["idBuyFutBinPrice"];
+    const useFutBinBid = !!buyerSetting["idAbBidFutBin"];
 
-    if (!userBuyNowPrice && !bidPrice && !useFutBinPrice) {
-      writeToLog(
-        "skip search >>> (No Buy or Bid Price given)",
-        idProgressAutobuyer
+    if (!userBuyNowPrice && !bidPrice && !useFutBinPrice && !useFutBinBid) {
+      return finish(
+        "Recherche ignorée : indique un Prix d'achat max ou une Enchère max dans Achat (les filtres Recherche ne comptent pas)."
       );
-      return resolve();
     }
 
     sendPinEvents("Transfer Market Search");
     updateRequestCount();
-    let searchCriteria = this.viewmodel.searchCriteria;
-    if (useRandMinBid)
+    let searchCriteria = sanitizeEaSearchCriteria(criteriaSource);
+    if (!searchCriteria || (!searchCriteria.maskedDefId && !searchCriteria.type)) {
+      return finish(
+        "Aucun critère de recherche. Choisis un joueur dans Recherche.",
+        "warning"
+      );
+    }
+    const canRandomizeMins = !searchCriteria.maskedDefId;
+    if (useRandMinBid && !searchCriteria.minBid && canRandomizeMins) {
       searchCriteria.minBid = roundOffPrice(
         getRandNum(0, buyerSetting["idAbRandMinBidInput"])
       );
-    if (useRandMinBuy)
+    }
+    if (useRandMinBuy && !searchCriteria.minBuy && canRandomizeMins) {
       searchCriteria.minBuy = roundOffPrice(
         getRandNum(0, buyerSetting["idAbRandMinBuyInput"])
       );
-    services.Item.clearTransferMarketCache();
+    }
+    searchCriteria = sanitizeEaSearchCriteria(searchCriteria);
+    const eaCriteria = toEaSearchDto(searchCriteria);
+    if (this && this.viewmodel) {
+      this.viewmodel.searchCriteria = eaCriteria;
+    }
+    setValue("lastSearchCriteria", searchCriteria);
+    if (
+      services.Item &&
+      typeof services.Item.clearTransferMarketCache === "function"
+    ) {
+      services.Item.clearTransferMarketCache();
+    }
 
-    services.Item.searchTransferMarket(searchCriteria, currentPage).observe(
-      this,
-      async function (sender, response) {
-        if (response.success) {
+    const handleSearchResponse = async function (sender, response) {
+        response = response || {};
+        if (!response.data && response.response) {
+          response.data = response.response;
+        }
+        if (response.data && !Array.isArray(response.data.items) && Array.isArray(response.data.itemData)) {
+          response.data.items = response.data.itemData;
+        }
+        if (response.success && response.data && Array.isArray(response.data.items)) {
           setValue("searchFailedCount", 0);
           let validSearchCount = true;
           writeToLog(
-            `<h2>Aucun élément trouvé !</h2> <br>Page n°${currentPage} <br>Enchère min à ${searchCriteria.minBid} <br>Achat immédiat min à ${searchCriteria.minBuy}`,
+            response.data.items.length
+              ? `${response.data.items.length} carte(s) · page ${currentPage}`
+              : `Aucun élément · page ${currentPage}`,
             idProgressAutobuyer
           );
 
@@ -106,10 +153,19 @@ export const searchTransferMarket = function (buyerSetting) {
             i--
           ) {
             let player = response.data.items[i];
-            let auction = player._auction;
-            let expires = services.Localization.localizeAuctionTimeRemaining(
-              auction.expires
-            );
+            let auction = player && player._auction;
+            if (!auction) {
+              continue;
+            }
+            let expires =
+              window.services &&
+              services.Localization &&
+              typeof services.Localization.localizeAuctionTimeRemaining ===
+                "function"
+                ? services.Localization.localizeAuctionTimeRemaining(
+                    auction.expires
+                  )
+                : auction.expires;
             let type = player.type;
             let { id } = player._metaData || {};
             let playerRating = parseInt(player.rating);
@@ -123,7 +179,7 @@ export const searchTransferMarket = function (buyerSetting) {
                   (existingValue.price * futBinBuyPercent) / 100
                 );
                 userBuyNowPrice = futBinBuyPrice;
-                if (buyerSetting["idAbBidFutBin"]) {
+                if (useFutBinBid) {
                   bidPrice = futBinBuyPrice;
                 }
               } else {
@@ -151,10 +207,12 @@ export const searchTransferMarket = function (buyerSetting) {
               ? getBuyBidPrice(currentBid)
               : currentBid;
 
-            let usersellPrice = buyerSetting["idAbSellPrice"];
+            let usersellPrice = toNumber(buyerSetting["idAbSellPrice"]) || null;
             let minRating = buyerSetting["idAbMinRating"];
             let maxRating = buyerSetting["idAbMaxRating"];
-            let playerName = player._staticData.name;
+            let playerName =
+              (player._staticData && player._staticData.name) ||
+              "Joueur";
 
             const shouldCheckRating = minRating || maxRating;
 
@@ -198,7 +256,13 @@ export const searchTransferMarket = function (buyerSetting) {
               continue;
             }
 
-            const userCoins = services.User.getUser().coins.amount;
+            const userCoins =
+              (window.services &&
+                services.User &&
+                services.User.getUser &&
+                services.User.getUser().coins &&
+                services.User.getUser().coins.amount) ||
+              0;
             if (
               (!bidPrice && userCoins < buyNowPrice) ||
               (bidPrice && userCoins < checkPrice)
@@ -207,7 +271,7 @@ export const searchTransferMarket = function (buyerSetting) {
               continue;
             }
 
-            if (buyNowPrice <= userBuyNowPrice) {
+            if (userBuyNowPrice && buyNowPrice <= userBuyNowPrice) {
               logWrite("essaye d'achat à: " + buyNowPrice);
               maxPurchases--;
               currentBids.add(auction.tradeId);
@@ -263,17 +327,97 @@ export const searchTransferMarket = function (buyerSetting) {
         }
         sendPinEvents("Transfer Market Search");
 
+        const itemCount =
+          (response.data && response.data.items && response.data.items.length) ||
+          0;
         if (
           currentPage < buyerSetting["idAbMaxSearchPage"] &&
-          response.data.items.length === 21
+          itemCount === 21
         ) {
           increAndGetStoreValue("currentPage");
         } else {
           setValue("currentPage", 1);
         }
         resolve();
-      }
+      };
+
+    const searchApi = services.Item && services.Item.searchTransferMarket;
+    if (typeof searchApi !== "function") {
+      return finish(
+        "API marché introuvable (services.Item.searchTransferMarket).",
+        "error"
+      );
+    }
+
+    writeToLog(
+      `Recherche marché${
+        searchCriteria.maskedDefId ? ` · id ${searchCriteria.maskedDefId}` : ""
+      }${userBuyNowPrice ? ` · achat ≤ ${userBuyNowPrice}` : ""}${
+        bidPrice ? ` · enchère ≤ ${bidPrice}` : " · sans enchère"
+      }${useFutBinPrice ? " · prix FUTBIN" : ""}`,
+      idProgressAutobuyer
     );
+
+    searchWatchdog = setTimeout(() => {
+      finish("Recherche marché : pas de réponse (15s).", "error");
+    }, 15000);
+
+    const onResult = (sender, response) => {
+      clearTimeout(searchWatchdog);
+      Promise.resolve(handleSearchResponse(sender, response)).catch((e) => {
+        writeToLog(
+          `Erreur traitement marché : ${e && e.message ? e.message : e}`,
+          idProgressAutobuyer,
+          null,
+          "error"
+        );
+        resolve();
+      });
+    };
+
+    let searchResult;
+    try {
+      searchResult = searchApi.call(
+        services.Item,
+        eaCriteria,
+        currentPage
+      );
+    } catch (firstError) {
+      try {
+        searchResult = searchApi.call(services.Item, eaCriteria);
+      } catch (e) {
+        clearTimeout(searchWatchdog);
+        return finish(
+          `Erreur API marché : ${e && e.message ? e.message : firstError && firstError.message}`,
+          "error"
+        );
+      }
+    }
+    if (searchResult && typeof searchResult.observe === "function") {
+      searchResult.observe(this || {}, onResult);
+    } else if (searchResult && typeof searchResult.then === "function") {
+      searchResult
+        .then((response) => onResult(null, response))
+        .catch((e) => {
+          clearTimeout(searchWatchdog);
+          finish(
+            `Recherche marché rejetée : ${e && e.message ? e.message : e}`,
+            "error"
+          );
+        });
+    } else {
+      clearTimeout(searchWatchdog);
+      return finish("Réponse marché inattendue — recherche ignorée.", "error");
+    }
+    } catch (e) {
+      if (searchWatchdog) {
+        clearTimeout(searchWatchdog);
+      }
+      finish(
+        `Erreur recherche : ${e && e.message ? e.message : e}`,
+        "error"
+      );
+    }
   });
 };
 

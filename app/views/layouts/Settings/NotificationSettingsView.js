@@ -136,5 +136,6 @@ export const notificationSettingsView = function () {
      "call-to-action"
    )}
    </div>
+  </div>
   `;
 };

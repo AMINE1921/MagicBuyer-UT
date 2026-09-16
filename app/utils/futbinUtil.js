@@ -4,6 +4,7 @@ import { getDataSource, getValue } from "../services/repository";
 import { getRandNumberInRange } from "./commonUtil";
 import { writeToLog } from "./logUtil";
 import { getBuyBidPrice, roundOffPrice } from "./priceUtils";
+import { getPageServices } from "./pageWindow";
 
 export const getSellPriceFromFutBin = async (
   buyerSetting,
@@ -14,7 +15,7 @@ export const getSellPriceFromFutBin = async (
   try {
     const definitionId = player.definitionId;
     const dataSource = getDataSource();
-    if (player.type !== "player") {
+    if (typeof player.isPlayer === "function" && !player.isPlayer()) {
       return sellPrice;
     }
     await fetchPrices([player]);
@@ -71,11 +72,20 @@ const getPriceLimits = async (player) => {
       resolve();
       return;
     }
-    services.Item.requestMarketData(player).observe(
-      this,
-      async function (sender, response) {
+    try {
+      const services = getPageServices();
+      if (!services || !services.Item || typeof services.Item.requestMarketData !== "function") {
         resolve();
+        return;
       }
-    );
+      services.Item.requestMarketData(player).observe(
+        this,
+        function () {
+          resolve();
+        }
+      );
+    } catch (e) {
+      resolve();
+    }
   });
 };

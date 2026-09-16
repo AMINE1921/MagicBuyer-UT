@@ -17,65 +17,65 @@ export const buySettingsView = function () {
   const dataSource = getDataSource();
   return `<div class='buyer-settings-wrapper buy-settings-view'>
       ${generateToggleInput(
-        "Find Buy Price",
+        "Prix d'achat auto",
         { idBuyFutBinPrice },
-        `(Uses ${dataSource} price for Buy)`,
+        `(Utilise le prix ${dataSource} pour l'achat immédiat)`,
         "BuyerSettings"
       )}
       ${generateTextInput(
-        "Buy/Bid Price Percent",
-        100,
+        "% du prix marché",
+        92,
         { idBuyFutBinPercent },
-        `(Buy/Bid Price percent of ${dataSource} Price)`,
+        `(Pourcentage du prix ${dataSource} — 92% = marge de sécu)`,
         "BuyerSettings"
       )}
       ${generateToggleInput(
-        `Bid For ${dataSource} Price`,
+        `Enchérir au prix ${dataSource}`,
         { idAbBidFutBin },
-        `(Bid if the current bid is lesser than ${dataSource} Price)`,
+        `(Enchère si le bid actuel est sous le prix ${dataSource})`,
         "BuyerSettings"
       )}
       ${generateTextInput(
-        "Buy Price",
+        "Prix d'achat max",
         "",
         { idAbBuyPrice },
-        "<br/>",
+        "Achat immédiat seulement si BIN ≤ ce montant",
         "BuyerSettings"
       )}
       ${generateTextInput(
-        "No. of cards to buy",
+        "Cartes max à acheter",
         1000,
         { idAbCardCount },
-        "(Works only with Buy price)",
+        "(Stoppe le bot une fois ce total atteint)",
         "BuyerSettings"
       )}
       ${generateTextInput(
-        "Bid Price",
+        "Enchère max",
         "",
         { idAbMaxBid },
-        "<br/>",
+        "N'enchérit pas au-delà de ce montant",
         "BuyerSettings"
       )}
       ${generateTextInput(
-        "Bid items expiring in",
+        "Enchérir si expire dans",
         "1H",
         { idAbItemExpiring },
-        "(S for seconds, M for Minutes, H for hours)",
+        "(S = sec, M = min, H = heures)",
         "BuyerSettings",
         "text",
         "\\d+[H|M|S|h|m|s]$"
       )} 
       ${generateTextInput(
-        "Search result threshold",
+        "Seuil de résultats",
         21,
         { idAbSearchResult },
-        "(Buy or bid cards only if the no.of search results is lesser than the specified value)",
+        "(Ignore la page si trop de résultats — concurrence élevée)",
         "BuyerSettings"
       )}
       ${generateToggleInput(
-        "Bid Exact Price",
+        "Enchère au prix exact",
         { idAbBidExact },
-        "",
+        "Sans round EA des paliers d'enchère",
         "BuyerSettings"
       )}      
      </div>

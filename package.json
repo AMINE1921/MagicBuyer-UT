@@ -1,12 +1,12 @@
 {
   "name": "MagicBuyer-UT",
-  "version": "2.0.0",
+  "version": "4.0.0",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build:dev": "webpack --mode development",
-    "build:prod": "webpack --mode production",
-    "serve": "webpack serve --mode development",
+    "build:dev": "NODE_OPTIONS=--openssl-legacy-provider webpack --mode development",
+    "build:prod": "NODE_OPTIONS=--openssl-legacy-provider webpack --mode production",
+    "serve": "NODE_OPTIONS=--openssl-legacy-provider webpack serve --mode development",
     "build:mobile": "npx babel  dist/fut-auto-buyer.user.js --out-file dist/fut-auto-buyer.mobile.js --presets babel-preset-es2015"
   },
   "repository": {
@@ -16,6 +16,7 @@
   "author": "AMINE1921",
   "license": "ISC",
   "dependencies": {
+    "jquery": "3.6.1",
     "webpack": "^5.47.1"
   },
   "devDependencies": {

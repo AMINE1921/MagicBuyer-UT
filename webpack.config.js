@@ -1,3 +1,4 @@
+const webpack = require("webpack");
 const headers = require("./tampermonkey-header");
 const WebpackUserscript = require("webpack-userscript");
 const TerserPlugin = require("terser-webpack-plugin");
@@ -11,6 +12,10 @@ module.exports = {
     contentBase: "./dist/",
   },
   plugins: [
+    new webpack.ProvidePlugin({
+      $: "jquery",
+      jQuery: "jquery",
+    }),
     new WebpackUserscript({
       ...headers,
     }),

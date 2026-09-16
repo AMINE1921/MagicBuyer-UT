@@ -1,7 +1,35 @@
+import $ from "./jquery";
+import { getPortraitUrl } from "../app.constants";
 import { idProgressAutobuyer } from "../elementIds.constants";
 import { getBuyerSettings } from "../services/repository";
 import { initializeLog } from "../views/layouts/LogView";
 import { sendNotificationToUser } from "./notificationUtil";
+
+const escapeHtml = (value) =>
+  String(value == null ? "" : value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+const toPlainText = (message) =>
+  String(message == null ? "" : message)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+\n/g, "\n")
+    .trim();
+
+const labelFor = (type, text) => {
+  if (type === "success") return "Succès";
+  if (type === "error") return "Erreur";
+  if (type === "warning") return "Attention";
+  if (/recherche/i.test(text)) return "Recherche";
+  if (/bot|démarr|reprise|stop/i.test(text)) return "Bot";
+  if (/achat|ench[eè]r/i.test(text)) return "Achat";
+  if (/vente|list/i.test(text)) return "Vente";
+  return "Info";
+};
 
 export const writeToAbLog = (
   sym,
@@ -12,17 +40,9 @@ export const writeToAbLog = (
   comments
 ) => {
   writeToLog(
-    sym +
-      " | " +
-      ItemName +
-      " | " +
-      priceTxt +
-      " | " +
-      operation +
-      " | " +
-      result +
-      " | " +
-      comments,
+    [sym, ItemName, priceTxt, operation, result, comments]
+      .filter((part) => part != null && part !== "")
+      .join(" · "),
     idProgressAutobuyer
   );
 };
@@ -38,66 +58,62 @@ export const showCaptchaLogs = function (captchaCloseTab) {
     return;
   }
   writeToLog(
-    "[!!!] Autostopping bot since Captcha got triggered",
-    idProgressAutobuyer
+    "Bot arrêté : captcha détecté.",
+    idProgressAutobuyer,
+    null,
+    "error"
   );
 };
 
 export const writeToLog = function (message, log, player, type) {
-  setTimeout(() => {
-    var $log = $("#" + log);
-    const logDiv = $(`
-              <li class="cardPalyerLi">
-              <div class="cardPalyer" style="${
-                type === "success"
-                  ? "border: solid #10AC84;"
-                  : type === "error"
-                  ? "border: solid #EE5253;"
-                  : type === "warning"
-                  ? "border: solid #FF9F43;"
-                  : "border: solid #2E86DE;"
-              }">
-              ${
-                player
-                  ? `<img
-                  style="width:30%; padding-left: 15px;"
-                  src="https://www.ea.com/ea-sports-fc/ultimate-team/web-app/content/24B23FDE-7835-41C2-87A2-F453DFDB2E82/2026/fut/items/images/mobile/portraits/${player?._metaData?.id}.png"
-                />`
-                  : ""
-              }
-              
-              <div class="container">
-                <span class="contentContainer" >${message}</span>
-                <div class="typeContent" style="${
-                  type === "success"
-                    ? "background: #10AC84;"
-                    : type === "error"
-                    ? "background: #EE5253;"
-                    : type === "warning"
-                    ? "background: #FF9F43;"
-                    : "background: #2E86DE;"
-                }">
-                  <span class="typeContentText">${
-                    type === "success"
-                      ? "✓"
-                      : type === "error"
-                      ? "X"
-                      : type === "warning"
-                      ? "!"
-                      : "↻"
-                  }</span>
-                </div>
-              </div>
-              </div>
-              </li>
-          `);
-    $log.append(logDiv);
-    if ($log[0]) $log.scrollTop($log[0].scrollHeight);
-  }, 50);
+  const plain = toPlainText(message);
+  try {
+    console.info("[MagicBuyer]", plain);
+  } catch (e) {}
+  try {
+    const host = document.getElementById(log) || (log && document.getElementById(String(log)));
+    if (!host) {
+      return;
+    }
+    const kind = type || "info";
+    const item = document.createElement("li");
+    item.className = `mb-log mb-log-${kind}`;
+    const time = new Date().toLocaleTimeString("fr-FR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    const portrait =
+      player && player._metaData && player._metaData.id
+        ? `<img class="mb-log-portrait" alt="" src="${getPortraitUrl(
+            player._metaData.id
+          )}" />`
+        : "";
+    item.innerHTML = `
+      <span class="mb-log-time">${time}</span>
+      ${portrait}
+      <div class="mb-log-body">
+        <strong class="mb-log-label">${labelFor(kind, plain)}</strong>
+        <p class="mb-log-text">${escapeHtml(plain).replace(/\n/g, "<br>")}</p>
+      </div>
+    `;
+    host.appendChild(item);
+    host.scrollTop = host.scrollHeight;
+    while (host.children.length > 80) {
+      host.removeChild(host.firstChild);
+    }
+  } catch (e) {
+    console.warn("[MagicBuyer] log", e);
+  }
 };
 
 export const clearLogs = () => {
-  $("#" + idProgressAutobuyer).val("");
+  const log = document.getElementById(idProgressAutobuyer);
+  if (log) {
+    log.innerHTML = "";
+  } else {
+    $("#" + idProgressAutobuyer).empty();
+  }
   initializeLog();
 };
 

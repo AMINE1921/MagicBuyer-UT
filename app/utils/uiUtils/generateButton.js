@@ -1,3 +1,5 @@
+import $ from "../jquery";
+
 let eventMappers = new Set();
 
 export const generateButton = (id, label, callback, additionalClasses) => {

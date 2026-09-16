@@ -1,3 +1,4 @@
+import $ from "./jquery";
 import { isMarketAlertApp } from "../app.constants";
 import * as ElementIds from "../elementIds.constants";
 import { getBuyerSettings } from "../services/repository";
@@ -201,7 +202,7 @@ export const getTimerProgress = function (timer) {
 export const updateSettingsView = function (settings) {
   for (let key of Object.keys(settings)) {
     const value = settings[key];
-    if (settings[key + "isDefaultValue"]) continue;
+    if (settings[key + "isDefaultValue"] && typeof value !== "boolean") continue;
     const id = `#${ElementIds[key]}`;
     if (typeof value == "boolean") {
       if (value) {

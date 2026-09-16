@@ -2,15 +2,17 @@ import { STATE_ACTIVE } from "../app.constants";
 import { setValue } from "../services/repository";
 import { pauseBotIfRequired, switchFilterIfRequired } from "./autoActionsUtil";
 import { sendUINotification } from "./notificationUtil";
+import { eaIsPhone, syncPageGlobals } from "./pageWindow";
 import { searchTransferMarket } from "./searchUtil";
 import { transferListUtil } from "./transferlistUtil";
 import { watchListUtil } from "./watchlistUtil";
 
 export const setInitialValues = (isResume) => {
+  syncPageGlobals();
   sendUINotification(isResume ? "Autobuyer Resumed" : "Autobuyer Started");
   setValue("autoBuyerActive", true);
   setValue("autoBuyerState", STATE_ACTIVE);
-  isPhone() && $(".ut-tab-bar-item").attr("disabled", true);
+  eaIsPhone() && $(".ut-tab-bar-item").not(".mb-native-tab").attr("disabled", true);
   if (!isResume) {
     setValue("botStartTime", new Date());
     setValue("purchasedCardCount", 0);

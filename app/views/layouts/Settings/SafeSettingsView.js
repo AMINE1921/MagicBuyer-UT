@@ -14,67 +14,67 @@ import { generateToggleInput } from "../../../utils/uiUtils/generateToggleInput"
 export const safeSettingsView = function () {
   return `<div style='display : none' class='buyer-settings-wrapper safety-settings-view'>
   ${generateTextInput(
-    "Wait Time",
-    "7-15",
+    "Pause entre recherches",
+    "8-12",
     { idAbWaitTime },
-    "(Random second range eg. 7-15)",
+    "(Secondes aléatoires, ex. 8-12 — trop bas = risk 429)",
     "CommonSettings",
     "text",
     "\\d+-\\d+$"
   )}
   ${generateTextInput(
-    "Max purchases per search request",
+    "Achats max par recherche",
     1,
     { idAbMaxPurchases },
-    "Increase this, only if you are Adding Delay After Buy of alteast 3S",
+    "Garde 1 sauf si tu as un délai d'achat ≥ 3S",
     "CommonSettings"
   )}
   ${generateTextInput(
-    "Pause Cycle",
-    "10-15",
+    "Cycle avant pause",
+    "12-18",
     { idAbCycleAmount },
-    "(No. of searches performed before triggering Pause eg. 10-15)",
+    "(Nombre de recherches avant une pause, ex. 12-18)",
     "CommonSettings",
     "text",
     "\\d+-\\d+$"
   )}
   ${generateTextInput(
-    "Pause For",
-    "5-8S",
+    "Durée de pause",
+    "20-40S",
     { idAbPauseFor },
-    "(S for seconds, M for Minutes, H for hours eg. 0-0S)",
+    "(S / M / H — ex. 20-40S)",
     "CommonSettings",
     "text",
     "\\d+-\\d+[H|M|S|h|m|s]$"
   )}
   ${generateToggleInput(
-    "Add Delay After Buy",
+    "Délai après achat",
     { idAbAddBuyDelay },
-    "(Adds Delay after trying to buy / bid a card)",
+    "(Pause après une tentative d'achat / enchère)",
     "CommonSettings"
   )}
   ${generateTextInput(
-    "Delay To Add",
-    "1S",
+    "Délai à ajouter",
+    "3S",
     { idAbDelayToAdd },
-    "(S for seconds, M for Minutes, H for hours)",
+    "(S / M / H)",
     "CommonSettings",
     "text",
     "\\d+[H|M|S|h|m|s]$"
   )}
   ${generateTextInput(
-    "Stop After",
-    "3-4H",
+    "Arrêt automatique",
+    "1-2H",
     { idAbStopAfter },
-    "(S for seconds, M for Minutes, H for hours  eg. 3-4H)",
+    "(S / M / H — ex. 1-2H)",
     "CommonSettings",
     "text",
     "\\d+-\\d+[H|M|S|h|m|s]$"
   )}
   ${generateToggleInput(
-    "Show Search Exceed Warning",
+    "Alerte trop de recherches",
     { idAbOverSearchWarning },
-    "(Shows a warning in log if number of search per minute exceeds 15)",
+    "(Log si plus de 15 recherches / minute)",
     "CommonSettings"
   )} 
   </div>`;

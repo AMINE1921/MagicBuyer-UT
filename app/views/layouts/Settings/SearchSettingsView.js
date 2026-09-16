@@ -21,10 +21,14 @@ import { generateTextInput } from "../../../utils/uiUtils/generateTextInput";
 import { checkAndAppendOption } from "../../../utils/filterUtil";
 import { getValue, setValue } from "../../../services/repository";
 import { generateButton } from "../../../utils/uiUtils/generateButton";
+import $ from "../../../utils/jquery";
+import { getPageWindow } from "../../../utils/pageWindow";
 let playerInput;
 
 export const destoryPlayerInput = () => {
-  playerInput.destroy();
+  if (playerInput && typeof playerInput.destroy === "function") {
+    playerInput.destroy();
+  }
   playerInput = null;
 };
 
@@ -35,10 +39,26 @@ const updateAbSortBy = () => {
   setValue("BuyerSettings", buyerSetting);
 };
 
-$(document).on({ change: updateAbSortBy }, `#${idAbSortBy}`);
+try {
+  $(document).on({ change: updateAbSortBy }, `#${idAbSortBy}`);
+} catch (e) {}
 
 const playerIgnoreList = function () {
-  playerInput = new UTPlayerSearchControl();
+  const page = getPageWindow();
+  const PlayerSearch =
+    (page && page.UTPlayerSearchControl) || window.UTPlayerSearchControl;
+  if (typeof PlayerSearch !== "function") {
+    return $(`
+      <div class="price-filter buyer-settings-field">
+        <div class="info">
+          <span class="secondary label">
+            Liste joueurs EA indisponible.<br/>
+            <small>Le bot utilise tes critères de recherche du marché des transferts.</small>
+          </span>
+        </div>
+      </div>`);
+  }
+  playerInput = new PlayerSearch();
   const playerListId = `#${idAddIgnorePlayersList}`;
   const element = $(`
             <div class="price-filter buyer-settings-field">
@@ -129,66 +149,66 @@ export const searchSettingsView = function () {
     <div class="place-holder">
     </div>
     ${generateToggleInput(
-      "Ignore/Buy Players List",
+      "Liste ignore / only-buy",
       { idAbIgnoreAllowToggle },
-      "(If toggled bot will only buy/bid the above players else bot will ignore the players when bidding/buying )",
+      "(ON = n'achète que ces joueurs, OFF = les ignore)",
       "BuyerSettings"
     )}
     ${generateTextInput(
-      "Min Rating",
+      "Note min",
       10,
       { idAbMinRating },
-      "Minimum Player Rating",
+      "Note minimale du joueur",
       "BuyerSettings"
     )}
     ${generateTextInput(
-      "Max Rating",
+      "Note max",
       100,
       { idAbMaxRating },
-      "Maximum Player Rating",
+      "Note maximale du joueur",
       "BuyerSettings"
     )}    
     ${generateTextInput(
-      "Search result page limit",
+      "Pages de recherche max",
       5,
       { idAbMaxSearchPage },
-      "No of. pages bot should move forward before going back to page 1",
+      "Nombre de pages avant de revenir à la page 1",
       "BuyerSettings"
     )}
     ${generateTextInput(
-      "Max value of random min bid",
+      "Min bid aléatoire max",
       300,
       { idAbRandMinBidInput },
-      "",
+      "Varie minBid pour éviter les caches EA",
       "BuyerSettings"
     )}
     ${generateToggleInput(
-      "Use random min bid",
+      "Min bid aléatoire",
       { idAbRandMinBidToggle },
-      "",
+      "Recommandé pour mixer les résultats",
       "BuyerSettings"
     )}
     ${generateTextInput(
-      "Max value of random min buy",
+      "Min buy aléatoire max",
       300,
       { idAbRandMinBuyInput },
-      "",
+      "Varie minBuy pour éviter les caches EA",
       "BuyerSettings"
     )}
     ${generateToggleInput(
-      "Use random min buy",
+      "Min buy aléatoire",
       { idAbRandMinBuyToggle },
-      "",
+      "Recommandé pour mixer les résultats",
       "BuyerSettings"
     )}
     ${generateToggleInput(
-      "SKIP GK",
+      "Ignorer les gardiens",
       { idAbAddFilterGK },
-      "(Skip all goalkeepers to buy / bid a card)",
+      "(Skip tous les GK)",
       "BuyerSettings"
     )}
     ${generateToggleInput(
-      "Sort players",
+      "Trier les joueurs",
       { idAbShouldSort },
       "",
       "BuyerSettings"
@@ -213,6 +233,10 @@ export const searchSettingsView = function () {
   </div>`);
 
   const parentEl = element.find(".place-holder");
-  playerIgnoreList().insertAfter(parentEl);
+  try {
+    playerIgnoreList().insertAfter(parentEl);
+  } catch (e) {
+    console.warn("[MagicBuyer] liste joueurs", e);
+  }
   return element;
 };

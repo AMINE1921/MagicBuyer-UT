@@ -9,8 +9,14 @@ import {
   searchSettingsView,
 } from "./Settings/SearchSettingsView";
 import { getValue, setValue } from "../../services/repository";
+import $ from "../../utils/jquery";
 import { filterSettingsView } from "./Settings/FilterSettingsView";
 import { getUserFilters } from "../../utils/dbUtil";
+import {
+  getFilterBarViewClass,
+  getMarketSearchFiltersViewController,
+  getTapEvent,
+} from "../../utils/eaCompat";
 import { idAbSortBy } from "../../elementIds.constants";
 
 const settingsLookup = new Map();
@@ -51,14 +57,18 @@ let menuRoot;
 let menuItems;
 
 export const generateMenuItems = function () {
-  menuItems = new EAFilterBarView();
+  const FilterBar = getFilterBarViewClass();
+  if (typeof FilterBar !== "function") {
+    return { __root: document.createElement("div") };
+  }
+  menuItems = new FilterBar();
   settingsLookup.forEach((value, key) => {
     menuItems.addTab(key, value.label);
   });
   menuItems.setActiveTab(0);
   menuItems.layoutSubviews();
 
-  menuItems.addTarget(this, onSettingChange, EventType.TAP);
+  menuItems.addTarget(this, onSettingChange, getTapEvent());
   menuItems.__root.style = "margin-top: 20px;";
 
   menuRoot = $(menuItems.__root);
@@ -76,22 +86,38 @@ export const setDefaultActiveTab = () => {
 };
 
 export const clearSettingMenus = async function () {
+  if (!menuItems || !menuRoot) {
+    clearSettingsCache();
+    return;
+  }
   deleteAllMenu();
   clearSettingsCache();
   await appendMenuItems();
-  const autoBuyerInstance = getValue("AutoBuyerInstance");
-  UTMarketSearchFiltersViewController.prototype._eResetSelected.call(
-    autoBuyerInstance
-  );
+  try {
+    const autoBuyerInstance = getValue("AutoBuyerInstance");
+    const Parent =
+      window.UTMarketSearchFiltersViewController ||
+      getMarketSearchFiltersViewController();
+    if (
+      Parent &&
+      Parent.prototype &&
+      typeof Parent.prototype._eResetSelected === "function" &&
+      autoBuyerInstance
+    ) {
+      Parent.prototype._eResetSelected.call(autoBuyerInstance);
+    }
+  } catch (e) {}
 };
 
 export const updateCommonSettings = async (isInit) => {
-  let commonSettings = await getUserFilters("CommonSettings");
-  commonSettings = JSON.parse(commonSettings["CommonSettings"] || "{}");
-  if (!$.isEmptyObject(commonSettings)) {
-    const currentValue = isInit ? getValue("CommonSettings") : {};
-    setValue("CommonSettings", Object.assign({}, currentValue, commonSettings));
-  }
+  try {
+    let commonSettings = await getUserFilters("CommonSettings");
+    commonSettings = JSON.parse(commonSettings["CommonSettings"] || "{}");
+    if (!$.isEmptyObject(commonSettings)) {
+      const currentValue = isInit ? getValue("CommonSettings") : {};
+      setValue("CommonSettings", Object.assign({}, currentValue, commonSettings));
+    }
+  } catch (e) {}
 };
 
 const appendMenuItems = async function (isInit) {

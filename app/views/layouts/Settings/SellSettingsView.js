@@ -14,9 +14,13 @@ import { getDataSource } from "../../../services/repository";
 import { generateTextInput } from "../../../utils/uiUtils/generateTextInput";
 import { generateToggleInput } from "../../../utils/uiUtils/generateToggleInput";
 
-$(document).on("keyup", "#" + idAbSellPrice, function ({ target: { value } }) {
-  updateAfterTax(value);
-});
+import $ from "../../../utils/jquery";
+
+try {
+  $(document).on("keyup", "#" + idAbSellPrice, function ({ target: { value } }) {
+    updateAfterTax(value);
+  });
+} catch (e) {}
 
 const updateAfterTax = (salePrice) => {
   const parsedSalePrice = parseInt(salePrice);
@@ -32,66 +36,66 @@ export const sellSettingsView = function () {
   const dataSource = getDataSource();
   return `<div style='display : none' class='buyer-settings-wrapper sell-settings-view'>
   ${generateToggleInput(
-    "Find Sale Price",
+    "Prix de vente auto",
     { idSellFutBinPrice },
-    `(Uses ${dataSource} price for listing)`,
+    `(Utilise le prix ${dataSource} pour lister)`,
     "BuyerSettings"
   )}
   ${generateTextInput(
-    "Sell Price Percent",
-    "100-100",
+    "% du prix de vente",
+    "108-112",
     { idSellFutBinPercent },
-    `(Sale Price percent of ${dataSource} Price)`,
+    `(Fourchette % du prix ${dataSource} — au-dessus de l'EA tax 5%)`,
     "BuyerSettings",
     "text",
     "\\d+-\\d+$"
   )}
   ${generateToggleInput(
-    "Check buy price before listing",
+    "Vérifier le prix d'achat",
     { idSellCheckBuyPrice },
-    "(List only if Buy Price is lesser than Sale Price)",
+    "(Liste seulement si achat < prix de vente)",
     "BuyerSettings"
   )}
   ${generateTextInput(
-    "Sell Price",
+    "Prix de vente",
     "",
     { idAbSellPrice },
-    `(-1 to send to transferlist)<br />Receive After Tax: <span id=${idSellAfterTax}>0</span>`,
+    `(-1 = transfert list) Après taxe: <span id=${idSellAfterTax}>0</span>`,
     "BuyerSettings"
   )} 
    ${generateTextInput(
-     "List Duration",
+     "Durée de l'annonce",
      "1H",
      { idFutBinDuration },
-     "List Duration when listing",
+     "Durée d'une mise en vente",
      "BuyerSettings",
      "text",
      "\\d+[H|M|S|h|m|s]$"
    )}
   ${generateTextInput(
-    "Clear sold count",
+    "Vider les vendus à",
     10,
     { idAbMinDeleteCount },
-    "(Clear sold items when reach a specified count)",
+    "(Nettoie les vendus après ce nombre)",
     "BuyerSettings"
   )}
   ${generateTextInput(
-    "Rating Threshold",
+    "Note max à lister",
     100,
     { idSellRatingThreshold },
-    "(Rating threshold to list the sniped player)",
+    "(Ne liste pas au-dessus de cette note)",
     "BuyerSettings"
   )}
   ${generateToggleInput(
-    "Relist Unsold Items",
+    "Relister les invendus",
     { idAbSellToggle },
     "",
     "BuyerSettings"
   )}
   ${generateToggleInput(
-    "Dont move won items",
+    "Ne pas déplacer les cartes gagnées",
     { idAbDontMoveWon },
-    "(Keep won items in Unassigned or Transfer Targets)",
+    "(Reste en non assigné / cibles)",
     "BuyerSettings"
   )}
   </div>`;

@@ -12,46 +12,46 @@ import { generateToggleInput } from "../../../utils/uiUtils/generateToggleInput"
 export const commonSettingsView = function () {
   return `<div style='display : none' class='buyer-settings-wrapper common-settings-view'>
   ${generateTextInput(
-    "Error Codes to stop bot (csv)",
+    "Codes erreur d'arrêt (csv)",
     "",
     { idAbStopErrorCode },
-    "(Eg. 412,421,521)",
+    "(Ex. 412,421,521)",
     "CommonSettings",
     "text",
     "^\\d+(,\\d+)*$"
   )}
   ${generateTextInput(
-    "No. of times error code should occur",
+    "Occurrences avant arrêt",
     3,
     { idAbStopErrorCodeCount },
-    "<br />",
+    "Nombre de fois où le code doit arriver",
     "CommonSettings"
   )}
   ${generateTextInput(
-    "Resume bot after",
+    "Reprise après erreur",
     "",
     { idAbResumeAfterErrorOccured },
-    "(S for seconds, M for Minutes, H for hours eg. 0-0S)",
+    "(S / M / H — ex. 30-60S)",
     "CommonSettings",
     "text",
     "\\d+-\\d+[H|M|S|h|m|s]$"
   )}
   ${generateToggleInput(
-    "Auto Clear Log",
+    "Vider les logs auto",
     { idAutoClearLog },
-    "(Automatically clear logs every 2 minutes)",
+    "(Toutes les 2 minutes)",
     "CommonSettings"
   )}
   ${generateToggleInput(
-    "Auto Clear Expired Items",
+    "Vider les expirés auto",
     { idAutoClearExpired },
-    "(Automatically clear expired items from transfer targets)",
+    "(Cibles de transfert expirées)",
     "CommonSettings"
   )}
   ${generateToggleInput(
-    "Use Futwiz Price",
+    "Prix Futwiz",
     { idAbUseFutWiz },
-    "(Uses Futwiz price for buying/selling cards)",
+    "(Sinon FUTBIN)",
     "CommonSettings"
   )}
   </div>`;

@@ -11,6 +11,7 @@ import {
 } from "../../../elementIds.constants";
 import { getValue, setValue } from "../../../services/repository";
 import { getUserFilters } from "../../../utils/dbUtil";
+import $ from "../../../utils/jquery";
 import { uploadFilters, downloadFilters } from "../../../utils/filterSyncUtil";
 import { updateMultiFilterSettings } from "../../../utils/filterUtil";
 import { generateButton } from "../../../utils/uiUtils/generateButton";
@@ -40,14 +41,16 @@ const filters = async () => {
 
   return filters;
 };
-$(document).on(
-  {
-    change: updateMultiFilterSettings,
-    click: updateMultiFilterSettings,
-    touchend: updateMultiFilterSettings,
-  },
-  `#${idSelectedFilter}`
-);
+try {
+  $(document).on(
+    {
+      change: updateMultiFilterSettings,
+      click: updateMultiFilterSettings,
+      touchend: updateMultiFilterSettings,
+    },
+    `#${idSelectedFilter}`
+  );
+} catch (e) {}
 
 const handleToggle = (evt, key) => {
   let runSequentially = getValue(key);

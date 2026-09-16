@@ -20,6 +20,8 @@ import { getSellPriceFromFutBin } from "./futbinUtil";
 import { idProgressAutobuyer } from "../elementIds.constants";
 import { sendNotificationToUser } from "./notificationUtil";
 import { writeToLog } from "./logUtil";
+import { purchasedItemFromBuyResponse } from "./eaAuction";
+import { getPageServices, syncPageGlobals } from "./pageWindow";
 
 const errorCodeCountMap = new Map();
 
@@ -33,6 +35,13 @@ export const buyPlayer = (
 ) => {
   const buyerSetting = getBuyerSettings();
   return new Promise((resolve) => {
+    syncPageGlobals();
+    const services = getPageServices();
+    if (!services || !services.Item || typeof services.Item.bid !== "function") {
+      writeToLog("API d'achat introuvable", idProgressAutobuyer, player, "error");
+      resolve();
+      return;
+    }
     services.Item.bid(player, price).observe(
       this,
       async function (sender, data) {
@@ -73,20 +82,24 @@ export const buyPlayer = (
             );
             updateStats("winCount", winCount);
             writeToLog(
-              `<h2>${playerName}</h2> <br>Acheté à ${price} <br>Vendu à ${sellPrice} <br>Bénéfice de ${profit}`,
+              `${playerName} acheté à ${price}${
+                shouldList ? ` — mise en vente à ${sellPrice}…` : ""
+              }`,
               idProgressAutobuyer,
               player,
               "success"
             );
 
             if (!buyerSetting["idAbDontMoveWon"]) {
+              const owned = purchasedItemFromBuyResponse(data, player);
               const sellQueue = getValue("sellQueue") || [];
               sellQueue.push({
-                player,
+                player: owned || player,
                 playerName,
                 sellPrice,
                 shouldList,
                 profit,
+                buyPrice: price,
               });
               setValue("sellQueue", sellQueue);
             }

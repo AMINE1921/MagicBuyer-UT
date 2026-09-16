@@ -29,9 +29,11 @@ export const saveFilterDetails = function (self) {
   let commonSettings = getValue("CommonSettings");
   setTimeout(function () {
     let settingsJson = {};
-    const viewModel = self._viewmodel;
+    const viewModel =
+      (self && (self._viewmodel || self.viewmodel)) || {};
     settingsJson.searchCriteria = {
-      criteria: viewModel.searchCriteria,
+      criteria:
+        viewModel.searchCriteria || getValue("lastSearchCriteria") || {},
       playerData: viewModel.playerData,
       buyerSettings: buyerSetting,
     };
@@ -96,18 +98,29 @@ export const loadFilter = async function (currentFilterName, isTransferSearch) {
     searchCriteria: { criteria, playerData, buyerSettings },
   } = JSON.parse(filterSetting);
 
-  this.viewmodel.resetSearch();
-  this.viewDidAppear();
+  const hasViewModel =
+    this &&
+    this.viewmodel &&
+    typeof this.viewmodel.resetSearch === "function" &&
+    this.viewmodel.searchCriteria;
 
-  this.viewmodel.playerData = {};
-  Object.assign(this.viewmodel.searchCriteria, criteria);
-  Object.assign(this.viewmodel.playerData, playerData);
-
-  if ($.isEmptyObject(this.viewmodel.playerData)) {
-    this.viewmodel.playerData = null;
+  if (hasViewModel) {
+    this.viewmodel.resetSearch();
+    if (typeof this.viewDidAppear === "function") {
+      this.viewDidAppear();
+    }
+    this.viewmodel.playerData = {};
+    Object.assign(this.viewmodel.searchCriteria, criteria);
+    Object.assign(this.viewmodel.playerData, playerData);
+    if ($.isEmptyObject(this.viewmodel.playerData)) {
+      this.viewmodel.playerData = null;
+    }
+    if (typeof this.viewDidAppear === "function") {
+      this.viewDidAppear();
+    }
+  } else {
+    setValue("lastSearchCriteria", criteria);
   }
-
-  this.viewDidAppear();
 
   if (isTransferSearch) {
     return;
@@ -150,7 +163,9 @@ export const deleteFilter = async function () {
     $(`${filterDropdownId}`).prop("selectedIndex", 0);
 
     await clearSettingMenus();
-    this.viewDidAppear();
+    if (this && typeof this.viewDidAppear === "function") {
+      this.viewDidAppear();
+    }
 
     delete getValue("filters")[filterName];
     $(`${selectedFilterId}` + ` option[value="${filterName}"]`).remove();

@@ -29,9 +29,17 @@ setValue("sessionStats", {
   searchPerMinuteCount: 0,
 });
 
+let statsStarted = false;
+
 export const statsProcessor = () => {
+  if (statsStarted) {
+    return;
+  }
+  statsStarted = true;
   setInterval(() => {
-    isPhone() ? phoneStatsProcessor() : webStatsProcessor();
+    typeof isPhone === "function" && isPhone()
+      ? phoneStatsProcessor()
+      : webStatsProcessor();
   }, 1000);
 };
 

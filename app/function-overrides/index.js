@@ -8,6 +8,14 @@ import "./network-override";
 export const initOverrides = () => {
   initDatabase();
   sideBarNavOverride();
-  isPhone() && topNavOverride();
-  xmlRequestOverride();
+  try {
+    typeof isPhone === "function" && isPhone() && topNavOverride();
+  } catch (e) {
+    console.warn("[MagicBuyer] topNavOverride", e);
+  }
+  try {
+    xmlRequestOverride();
+  } catch (e) {
+    console.warn("[MagicBuyer] xmlRequestOverride", e);
+  }
 };

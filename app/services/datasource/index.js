@@ -7,7 +7,6 @@ export const fetchPrices = async (items) => {
 
   if (dataSource === "FUTWIZ") {
     return futwiz.fetchPrices(items);
-  } else if (dataSource === "FUTBIN") {
-    return futbin.fetchPrices(items);
   }
+  return futbin.fetchPrices(items);
 };

@@ -13,19 +13,19 @@ import { generateToggleInput } from "../../../utils/uiUtils/generateToggleInput"
 export const captchaSettingsView = function () {
   return `<div style='display : none' class='buyer-settings-wrapper captcha-settings-view'>
     ${generateToggleInput(
-      "Close Web App on Captcha Trigger",
+      "Fermer la Web App si captcha",
       { idAbCloseTabToggle },
       "",
       "CommonSettings"
     )}         
     ${generateToggleInput(
-      "Auto Solve Captcha",
+      "Résoudre le captcha auto",
       { idAbSolveCaptcha },
       "",
       "CommonSettings"
     )}
     ${generateTextInput(
-      "Anti-Captcha Key",
+      "Clé Anti-Captcha",
       "",
       { idAntiCaptchKey },
       "",
@@ -33,7 +33,7 @@ export const captchaSettingsView = function () {
       "text"
     )}
     ${generateTextInput(
-      "Proxy Address",
+      "Adresse proxy",
       "",
       { idProxyAddress },
       "",
@@ -41,14 +41,14 @@ export const captchaSettingsView = function () {
       "text"
     )}
     ${generateTextInput(
-      "Proxy Port",
+      "Port proxy",
       "",
       { idProxyPort },
       "",
       "CommonSettings"
     )}
     ${generateTextInput(
-      "Proxy User Name (Optional)",
+      "User proxy (optionnel)",
       "",
       { idProxyLogin },
       "",
@@ -56,12 +56,13 @@ export const captchaSettingsView = function () {
       "text"
     )}
     ${generateTextInput(
-      "Proxy User Password (Optional)",
+      "Mot de passe proxy (optionnel)",
       "",
       { idProxyPassword },
       "",
       "CommonSettings",
       "text"
-    )} 
+    )}
+    </div> 
     `;
 };

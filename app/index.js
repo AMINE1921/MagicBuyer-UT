@@ -1,38 +1,25 @@
+import $ from "./utils/jquery";
+import { isFutbinPage } from "./ui/futbinBridge";
+import "./ui/chromeOnly";
 import { isMarketAlertApp } from "./app.constants";
-import { initOverrides } from "./function-overrides";
-import { cssOverride } from "./function-overrides/css-override";
 import { initListeners } from "./services/listeners";
+import { bootMagicBuyer } from "./ui/magicBuyerShell";
+import { ensureEaShims } from "./utils/eaCompat";
 
-const initAutobuyer = function () {
-  let isHomePageLoaded = false;
-  isPhone() && $("body").removeClass("landscape").addClass("phone");
-  $(".ui-orientation-warning").attr("style", "display: none !important");
-  $(".ut-fifa-header-view").attr("style", "display: none !important");
-  if (
-    services.Localization &&
-    $("h1.title").html() === services.Localization.localize("navbar.label.home")
-  ) {
-    isHomePageLoaded = true;
-  }
+if (!isFutbinPage()) {
+  window.$ = window.jQuery = $;
 
-  if (isHomePageLoaded) {
-    cssOverride();
-  } else {
-    setTimeout(initAutobuyer, 1000);
+  try {
+    ensureEaShims();
+  } catch (e) {
+    console.warn("[MagicBuyer] shims", e);
   }
-};
-
-const initFunctionOverrides = function () {
-  let isPageLoaded = false;
-  if (services.Localization) {
-    isPageLoaded = true;
+  try {
+    bootMagicBuyer();
+  } catch (e) {
+    console.error("[MagicBuyer] boot", e);
   }
-  if (isPageLoaded) {
-    initOverrides();
-    initAutobuyer();
+  try {
     isMarketAlertApp && initListeners();
-  } else {
-    setTimeout(initFunctionOverrides, 1000);
-  }
-};
-initFunctionOverrides();
+  } catch (e) {}
+}

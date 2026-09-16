@@ -3,19 +3,45 @@ import { startAutoBuyer, stopAutoBuyer } from "../handlers/autobuyerProcessor";
 
 import { loadFilter } from "./userExternalUtil";
 import { isMarketAlertApp } from "../app.constants";
+import { getPageServices, getPageWindow } from "./pageWindow";
 
 let discordClient = null;
 
 export const sendUINotification = function (message, notificationType) {
-  notificationType = notificationType || UINotificationType.POSITIVE;
-  services.Notification.queue([message, notificationType]);
+  try {
+    const page = getPageWindow();
+    const type =
+      notificationType ||
+      (page.UINotificationType && page.UINotificationType.POSITIVE) ||
+      (typeof UINotificationType !== "undefined" &&
+        UINotificationType.POSITIVE);
+    const services = getPageServices();
+    if (
+      services &&
+      services.Notification &&
+      typeof services.Notification.queue === "function"
+    ) {
+      services.Notification.queue([message, type]);
+      return;
+    }
+  } catch (e) {}
+  console.info("[MagicBuyer]", message);
 };
 
 export const sendPinEvents = (pageId) => {
-  services.PIN.sendData(PINEventType.PAGE_VIEW, {
-    type: PIN_PAGEVIEW_EVT_TYPE,
-    pgid: pageId,
-  });
+  try {
+    if (
+      window.services &&
+      services.PIN &&
+      typeof services.PIN.sendData === "function" &&
+      typeof PINEventType !== "undefined"
+    ) {
+      services.PIN.sendData(PINEventType.PAGE_VIEW, {
+        type: PIN_PAGEVIEW_EVT_TYPE,
+        pgid: pageId,
+      });
+    }
+  } catch (e) {}
 };
 
 export const sendNotificationToUser = (message, isSuccess, isTestMessage) => {

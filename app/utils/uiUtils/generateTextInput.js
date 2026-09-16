@@ -1,3 +1,4 @@
+import $ from "../jquery";
 import { getValue, setValue } from "../../services/repository";
 let eventMappers = new Set();
 
@@ -22,8 +23,11 @@ export const generateTextInput = (
 ) => {
   const key = Object.keys(id)[0];
   if (placeholder) {
-    customCallBack && customCallBack(placeholder);
-    updateCache(key, settingKey, placeholder, type, true);
+    const existing = getValue(settingKey) || {};
+    if (existing[key] == null) {
+      customCallBack && customCallBack(placeholder);
+      updateCache(key, settingKey, placeholder, type, true);
+    }
   }
   if (!eventMappers.has(key)) {
     $(document).on("input", `#${id[key]}`, ({ target: { value } }) => {

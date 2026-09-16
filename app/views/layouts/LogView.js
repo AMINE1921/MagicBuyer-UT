@@ -1,10 +1,12 @@
 import { idLog, idProgressAutobuyer } from "../../elementIds.constants";
 import { clearLogs } from "../../utils/logUtil";
+import $ from "../../utils/jquery";
 import { createButton } from "./ButtonView";
 
 export const logView = () => {
+  const phone = typeof isPhone === "function" && isPhone();
   const logContainer = $(`<div style=${
-    !isPhone()
+    !phone
       ? "width:48%"
       : "height: 90%;display: flex;flex-direction: column;padding: 7px;"
   } id=${idLog}>

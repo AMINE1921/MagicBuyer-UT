@@ -1,3 +1,4 @@
+import $ from "../jquery";
 import { getValue, setValue } from "../../services/repository";
 let eventMappers = new Set();
 
@@ -22,6 +23,8 @@ export const generateToggleInput = (
   customCallBack = null
 ) => {
   const key = Object.keys(id)[0];
+  const existing = getValue(settingKey) || {};
+  const isOn = !!existing[key];
   if (!eventMappers.has(key)) {
     $(document).on("click touchend", `#${id[key]}`, (evt) => {
       !customCallBack && clickHandler(key, settingKey, evt);
@@ -33,7 +36,7 @@ export const generateToggleInput = (
     <div class="price-filter  ${additionalClasses}">
         <div class="ut-toggle-cell-view">
            <span class="ut-toggle-cell-view--label">${label} <br/><small>${info}</small></span>
-             <div id='${id[key]}' class="ut-toggle-control">
+             <div id='${id[key]}' class="ut-toggle-control${isOn ? " toggled" : ""}">
                <div class="ut-toggle-control--track">
               </div>
               <div class= "ut-toggle-control--grip" >

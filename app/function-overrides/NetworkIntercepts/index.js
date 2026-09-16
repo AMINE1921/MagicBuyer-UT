@@ -1,11 +1,13 @@
 import { isMarketAlertApp } from "../../app.constants";
 import { getValue, setValue } from "../../services/repository";
+import { installTransferMarketUrlGuard } from "../../utils/eaTransferMarket";
 
-const personaUrl = "/ut/game/fifa23/usermassinfo";
-const squadMembersUrl = "/ut/game/fifa23/tradepile";
+const personaUrlPattern = /\/ut\/game\/[^/]+\/usermassinfo/;
+const squadMembersUrlPattern = /\/ut\/game\/[^/]+\/tradepile(?:\?|$)/;
 const profileUrl = "https://gateway.ea.com/proxy/identity/pids/me";
 
 export const xmlRequestOverride = () => {
+  installTransferMarketUrlGuard();
   let defaultRequestOpen = window.XMLHttpRequest.prototype.open;
 
   window.XMLHttpRequest.prototype.open = function (method, url, async) {
@@ -13,7 +15,7 @@ export const xmlRequestOverride = () => {
       "readystatechange",
       function () {
         if (this.readyState === 4) {
-          if (isMarketAlertApp && this.responseURL.includes(personaUrl)) {
+          if (isMarketAlertApp && personaUrlPattern.test(this.responseURL)) {
             let parsedResponse = JSON.parse(this.responseText);
             if (parsedResponse) {
               const { personaId, personaName } = parsedResponse.userInfo;
@@ -31,8 +33,7 @@ export const xmlRequestOverride = () => {
               );
             }
           } else if (
-            isMarketAlertApp &&
-            this.responseURL.includes(squadMembersUrl)
+            isMarketAlertApp && squadMembersUrlPattern.test(this.responseURL)
           ) {
             let parsedResponse = JSON.parse(this.responseText);
             if (parsedResponse) {

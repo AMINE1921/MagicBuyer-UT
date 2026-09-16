@@ -1,13 +1,22 @@
 import { getValue, setValue } from "../services/repository";
+import { getPageServices } from "./pageWindow";
 
 export const getUserPlatform = () => {
   let platform = getValue("userPlatform");
   if (platform) return platform;
 
-  if (services.User.getUser().getSelectedPersona().isPC) {
-    setValue("userPlatform", "pc");
-    return "pc";
-  }
+  try {
+    const services = getPageServices();
+    const user = services && services.User && services.User.getUser();
+    const persona =
+      user && typeof user.getSelectedPersona === "function"
+        ? user.getSelectedPersona()
+        : null;
+    if (persona && persona.isPC) {
+      setValue("userPlatform", "pc");
+      return "pc";
+    }
+  } catch (e) {}
 
   setValue("userPlatform", "ps");
   return "ps";
@@ -15,8 +24,17 @@ export const getUserPlatform = () => {
 
 export const updateUserCredits = () => {
   return new Promise((resolve) => {
-    services.User.requestCurrencies().observe(this, function (sender, data) {
+    try {
+      const services = getPageServices();
+      if (!services || !services.User || typeof services.User.requestCurrencies !== "function") {
+        resolve();
+        return;
+      }
+      services.User.requestCurrencies().observe(this, function () {
+        resolve();
+      });
+    } catch (e) {
       resolve();
-    });
+    }
   });
 };
