@@ -27,11 +27,21 @@ const initDatabase = () => {
   });
 };
 
+const TABLE_QUERIES = {
+  Filters: "SELECT * FROM Filters",
+  CommonSettings: "SELECT * FROM CommonSettings",
+};
+
 const getUserFilters = (tableName = "Filters") => {
   return new Promise((resolve, reject) => {
+    const query = TABLE_QUERIES[tableName];
+    if (!query) {
+      reject(new Error(`Invalid table name: ${tableName}`));
+      return;
+    }
     db.transaction(function (tx) {
       tx.executeSql(
-        `SELECT * FROM ${tableName}`,
+        query,
         [],
         function (tx, results) {
           const filters = {};
