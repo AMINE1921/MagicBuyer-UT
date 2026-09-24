@@ -1,7 +1,7 @@
 import { sendExternalRequest } from "../services/externalRequest";
 
-export const sendRequest = (url, method, identifier, headers) => {
-  return new Promise((resolve, reject) => {
+export const sendRequest = (url, method, identifier, headers) =>
+  new Promise((resolve, reject) => {
     sendExternalRequest({
       method,
       identifier,
@@ -10,10 +10,10 @@ export const sendRequest = (url, method, identifier, headers) => {
       onload: (res) => {
         const body = res.responseText || res.response || "";
         if (res.status !== 200) {
-          return reject({ status: res.status, response: body });
+          reject({ status: res.status, response: body });
+          return;
         }
-        return resolve(body);
+        resolve(body);
       },
     });
   });
-};

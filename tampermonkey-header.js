@@ -2,8 +2,8 @@ module.exports = {
   headers: {
     name: "MagicBuyer-UT",
     namespace: "http://tampermonkey.net/",
-    version: "4.0.0",
-    description: "UT Auto Buyer - EA FC 27",
+    version: "5.1.1",
+    description: "Sniper / autobuyer pour le web app EA FC 27 Ultimate Team",
     author: "AMINE1921",
     match: [
       "https://www.ea.com/*/ea-sports-fc/ultimate-team/web-app*",
@@ -11,16 +11,16 @@ module.exports = {
       "https://www.futbin.com/*",
     ],
     "run-at": "document-start",
-    grant: ["GM_xmlhttpRequest", "unsafeWindow"],
+    sandbox: "JavaScript",
+    "inject-into": "page",
+    grant: ["GM_xmlhttpRequest", "GM_getValue", "GM_setValue", "unsafeWindow"],
     connect: [
       "ea.com",
-      "ea2.com",
       "futbin.com",
       "www.futbin.com",
-      "futwiz.com",
+      "discord.com",
       "discordapp.com",
-      "futbin.org",
-      "exp.host",
+      "api.telegram.org",
     ],
     updateURL:
       "https://github.com/AMINE1921/MagicBuyer-UT/releases/latest/download/fut-auto-buyer.user.js",

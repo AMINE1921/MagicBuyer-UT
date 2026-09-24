@@ -1,23 +1,16 @@
-import { isMarketAlertApp } from "../app.constants";
-import { setValue } from "../services/repository";
+// Requêtes hors EA (FUTBIN, Discord, Telegram) via GM_xmlhttpRequest (pas de CORS).
 
-export const sendExternalRequest = async (options) => {
-  if (isMarketAlertApp) {
-    sendPhoneRequest(options);
-  } else {
-    sendWebRequest(options);
+const gmRequest = () => {
+  if (typeof GM_xmlhttpRequest === "function") {
+    return GM_xmlhttpRequest;
   }
+  if (typeof GM !== "undefined" && GM && typeof GM.xmlHttpRequest === "function") {
+    return GM.xmlHttpRequest;
+  }
+  return null;
 };
 
-const sendPhoneRequest = (options) => {
-  setValue(options.identifier, options.onload);
-  delete options["onload"];
-  window.ReactNativeWebView.postMessage(
-    JSON.stringify({ type: "fetchFromExternalAB", payload: { options } })
-  );
-};
-
-const sendWebRequest = (options) => {
+export const sendExternalRequest = (options) => {
   const headers = Object.assign({}, options.headers || {});
   if (!headers.Accept) {
     headers.Accept = "application/json, text/html;q=0.9, */*;q=0.8";
@@ -25,39 +18,58 @@ const sendWebRequest = (options) => {
   if (/futbin\.com/i.test(options.url) && !headers.Referer) {
     headers.Referer = "https://www.futbin.com/";
   }
-  const fail = () => {
+  let done = false;
+  const finish = (res) => {
+    if (done) {
+      return;
+    }
+    done = true;
     if (typeof options.onload === "function") {
-      options.onload({ status: 0, response: "", responseText: "" });
+      try {
+        options.onload(res);
+      } catch (e) {}
     }
   };
-  const gm =
-    typeof GM_xmlhttpRequest === "function"
-      ? GM_xmlhttpRequest
-      : typeof GM !== "undefined" && GM && typeof GM.xmlHttpRequest === "function"
-      ? GM.xmlHttpRequest
-      : null;
+  const fail = () => finish({ status: 0, response: "", responseText: "" });
+  const gm = gmRequest();
   if (!gm) {
-    fetch(options.url, { method: options.method || "GET", credentials: "include" })
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timer = setTimeout(() => {
+      if (controller) {
+        controller.abort();
+      }
+      fail();
+    }, options.timeout || 15000);
+    fetch(options.url, {
+      method: options.method || "GET",
+      headers,
+      body: options.data,
+      credentials: "omit",
+      signal: controller ? controller.signal : undefined,
+    })
+      .finally(() => clearTimeout(timer))
       .then((res) =>
         res.text().then((text) =>
-          options.onload({
-            status: res.status,
-            response: text,
-            responseText: text,
-          })
+          finish({ status: res.status, response: text, responseText: text })
         )
       )
       .catch(fail);
     return;
   }
-  gm({
-    method: options.method || "GET",
-    url: options.url,
-    headers,
-    anonymous: false,
-    timeout: 15000,
-    onload: options.onload,
-    onerror: fail,
-    ontimeout: fail,
-  });
+  try {
+    gm({
+      method: options.method || "GET",
+      url: options.url,
+      headers,
+      data: options.data,
+      anonymous: !!options.anonymous,
+      timeout: options.timeout || 15000,
+      onload: finish,
+      onerror: fail,
+      ontimeout: fail,
+      onabort: fail,
+    });
+  } catch (e) {
+    fail();
+  }
 };
