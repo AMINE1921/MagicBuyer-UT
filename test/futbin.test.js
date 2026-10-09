@@ -1560,6 +1560,57 @@ const main = async () => {
     check(!futbin.requests.some((r) => /players\/search/.test(r.url)) && futbin.requests.some((r) => /player\/587\//.test(r.url)), "aucune recherche FUTBIN : lien direct vers la fiche", futbin.requests.map((r) => r.url));
   }
 
+  console.log("\n# recherche de joueur : API de l'appli FUTBIN d'abord, recherche futbin.com en secours");
+  {
+    baseSettings();
+    resetFutbin();
+    settings.setSetting("prices.source", "api");
+    const endrick = { name: "Endrick Felipe Moreira de Sousa", common: "Endrick", baseId: 272505 };
+    futbin.api = [
+      apiRow(Object.assign({ futbinId: 1500, eaId: 272505, rating: 79, ps: 900 }, endrick)),
+      apiRow(Object.assign({ futbinId: 23100, eaId: 50604153, rating: 84, rareType: 69, slug: "spiritual_home", ps: 9000 }, endrick)),
+      apiRow(Object.assign({ futbinId: 23101, eaId: 67381369, rating: 84, rareType: 69, slug: "spiritual_home", holo: true, ps: 15000 }, endrick)),
+    ];
+    const found = await futbinApi.searchFutbinPlayers("endri");
+    check(
+      found.ok && found.via === "api" && found.rows.length === 3 && !futbin.requests.some((r) => /futbin\.com/.test(r.url)),
+      "« endri » : 3 versions par l'API, aucune requête futbin.com",
+      { via: found.via, rows: (found.rows || []).length, requests: futbin.requests.map((r) => r.url) }
+    );
+    const holo = found.rows.find((row) => row.eaId === 67381369);
+    check(holo && holo.holo === true && holo.rareType === 69 && /\/27\/player\/23101\//.test(holo.url) && holo.name === "Endrick", "version holo et promo signalées, lien FUTBIN de la version", holo);
+    addCard({ eaId: 158023, futbinId: 22, name: "Lionel Messi", rating: 89, ps: 21500 });
+    const fallback = await futbinApi.searchFutbinPlayers("messi");
+    check(fallback.ok && fallback.via !== "api" && fallback.rows.some((row) => row.eaId === 158023), "joueur absent de l'API : recherche futbin.com en secours", fallback);
+    settings.setSetting("prices.source", "pages");
+    const apiCalls = () => futbin.requests.filter((r) => /futbin\.org/.test(r.url)).length;
+    const before = apiCalls();
+    const pages = await futbinApi.searchFutbinPlayers("endri");
+    check(pages.ok && apiCalls() === before, "source « pages seules » : aucune requête à l'API", { before, after: apiCalls() });
+  }
+
+  console.log("\n# joueur « toutes versions » : versions lues par l'API de l'appli");
+  {
+    baseSettings();
+    resetFutbin();
+    settings.setSetting("prices.source", "api");
+    futbin.api = [
+      apiRow({ futbinId: 8, eaId: 231747, name: "Kylian Mbappé", common: "Mbappé", rating: 91, ps: 3179000 }),
+      apiRow({ futbinId: 22994, eaId: 50563395, baseId: 231747, name: "Kylian Mbappé", common: "Mbappé", rating: 91, rareType: 22, slug: "destined_for_glory", ps: 7800000 }),
+      apiRow({ futbinId: 22995, eaId: 67340611, baseId: 231747, name: "Kylian Mbappé", common: "Mbappé", rating: 91, rareType: 22, slug: "destined_for_glory", holo: true, ps: 11250000 }),
+      apiRow({ futbinId: 9579, eaId: 278172, name: "Ethan Mbappé", common: "Mbappé", rating: 74, slug: "silver", ps: 950 }),
+    ];
+    const f = filters.normalizeFilter({ priceMode: "futbin", player: { id: 231747, name: "Mbappé", rating: 91 } });
+    const handle = cardSets.acquireCardSet(f);
+    const key = cardSets.cardSetKey(f);
+    await until(() => cardSets.cardSetSnapshot(key).status === "ready", 5000);
+    const snapshot = cardSets.cardSetSnapshot(key);
+    handle.release();
+    const ids = snapshot.cards.map((card) => card.eaId).sort((a, b) => a - b);
+    check(ids.join() === "231747,50563395,67340611" && !snapshot.message, "3 versions de Mbappé (base, Destin glorieux, holo), homonyme écarté", { ids, message: snapshot.message });
+    check(!futbin.requests.some((r) => /players\/search/.test(r.url)), "aucune recherche futbin.com", futbin.requests.map((r) => r.url));
+  }
+
   console.log(`\n${passes} OK, ${failures} échec(s)`);
   process.exit(failures ? 1 : 0);
 };

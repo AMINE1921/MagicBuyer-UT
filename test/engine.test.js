@@ -137,6 +137,33 @@ const main = async () => {
     check(!engine.isRunning(), "arrêt manuel");
   }
 
+  console.log("\n# moteur : filtre « holo seulement » / « sans holo »");
+  {
+    fastTiming();
+    const holo = { _hyperCosmeticDTOs: { 1: { type: 1, subtype: 0 } } };
+    const market = (n, criteria, page, makeItem) =>
+      n === 1
+        ? { success: true, data: { items: [] } }
+        : { success: true, data: { items: [makeItem({ tradeId: "normal", bin: 41000 }), makeItem({ tradeId: "holo", bin: 43000, extra: holo })] } };
+    const mock = createMockEa();
+    setPageForTests(mock.page);
+    mock.setMarket(market);
+    setFilter({ holo: "only" });
+    engine.startBot();
+    await until(() => mock.calls.bid.length >= 1, 4000);
+    await stopAndWait();
+    check(mock.calls.bid.length >= 1 && mock.calls.bid.every((b) => b.tradeId === "holo"), "holo seulement : la version normale (moins chère) est ignorée", mock.calls.bid);
+    const mock2 = createMockEa();
+    setPageForTests(mock2.page);
+    mock2.setMarket(market);
+    setFilter({ holo: "none" });
+    engine.startBot();
+    await until(() => mock2.calls.bid.length >= 1, 4000);
+    await stopAndWait();
+    check(mock2.calls.bid.length >= 1 && mock2.calls.bid.every((b) => b.tradeId === "normal"), "sans holo : la holo est ignorée", mock2.calls.bid);
+    setFilter({ holo: "any" });
+  }
+
   console.log("\n# moteur : cadence et limite par minute");
   {
     fastTiming();

@@ -107,7 +107,7 @@ export const toggleField = (opts) => `
 export const selectField = (opts) => `
   <div ${fieldAttrs(opts)}>
     <label class="mb-label"><span>${opts.label}</span></label>
-    <select class="mb-input" data-bind="${opts.bind}" data-kind="select"${opts.numeric ? ' data-numeric="1"' : ""} aria-label="${escapeHtml(opts.label)}">
+    <select class="mb-input" data-bind="${opts.bind}" data-kind="select"${opts.numeric ? ' data-numeric="1"' : ""}${opts.list ? ` data-ea-list="${escapeHtml(opts.list)}"` : ""} aria-label="${escapeHtml(opts.label)}">
       ${opts.options.map(([value, text]) => `<option value="${escapeHtml(value)}">${escapeHtml(text)}</option>`).join("")}
     </select>
     ${hintHtml(opts.hint)}

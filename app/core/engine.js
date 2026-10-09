@@ -645,6 +645,10 @@ const watchFutbinPrices = (ctx) => {
   });
 };
 
+// Choix « holo » du filtre (holo seulement / sans holo), vérifié sur chaque annonce : la recherche EA
+// ne trie pas les holo.
+const holoAllowed = (item, filter) => !filter.holo || filter.holo === "any" || market.isHoloItem(item) === (filter.holo === "only");
+
 const matchesTarget = (item, filter) => {
   if (filter.definitionId) {
     return Number(item.definitionId) === filter.definitionId;
@@ -1433,7 +1437,7 @@ const analyzeResults = (ctx, items, filter, plan, settings, bidOn) => {
       counts.own += 1;
       return;
     }
-    if (!plan.member(item)) {
+    if (!plan.member(item) || !holoAllowed(item, filter)) {
       counts.other += 1;
       return;
     }
@@ -2682,7 +2686,7 @@ export const previewSearch = async (filter) => {
           bid: toInt(auction.currentBid) || toInt(auction.startingBid),
           expires: Number(auction.expires) || 0,
           own: !!auction.tradeOwner,
-          match: plan.member(item),
+          match: plan.member(item) && holoAllowed(item, filter),
           max: plan.maxFor(item),
           futbin: plan.valueOf(item),
         };

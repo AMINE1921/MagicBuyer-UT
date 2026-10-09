@@ -24,6 +24,7 @@ import * as results from "../app/ui/searchResults";
 import { hidePlacement, showSet } from "../app/ui/sbcTools";
 import * as bulkList from "../app/core/bulkList";
 import * as autoRelist from "../app/core/autoRelist";
+import { eaName, eaOptions } from "../app/core/eaLists";
 
 global.DOMParser = DOMParser;
 
@@ -951,7 +952,7 @@ const main = async () => {
       copy
     );
     const text = filterStore.describeFilter(copy);
-    check(text.includes("achat ≤ 88 % du prix marché EA") && text.includes("style 268"), "description : achat ≤ 88 % du prix marché EA, style", text);
+    check(text.includes("achat ≤ 88 % du prix marché EA") && text.includes("style Ombre"), "description : achat ≤ 88 % du prix marché EA, style Ombre (nom, plus l'identifiant 268)", text);
   }
 
   console.log("\n# filtres : suppression des filtres désactivés en une fois");
@@ -1003,6 +1004,52 @@ const main = async () => {
     check(added.every((f) => f.priceMode === "futbin" && f.level === "gold" && f.sellMode === "futbin" && f.bidPercent > 0), "mode FUTBIN, revente FUTBIN, enchère en %", added[1]);
     check(filterStore.getRotation().enabled && !list.find((f) => f.id === other.id).enabled && added.every((f) => f.enabled), "rotation entre les seuls filtres fourrage", filterStore.getRotation());
     check(added.every((f) => cardSetKey(f).startsWith("list:") && /player_rating=8[567]-8[567]/.test(futbinListUrl(f))), "liste FUTBIN des moins chères de chaque note", added.map((f) => futbinListUrl(f)));
+  }
+
+  console.log("\n# filtres : listes du jeu (nations, championnats, clubs, types, styles) et noms");
+  {
+    settings.setSetting("ui.language", "fr");
+    const texts = {
+      "search.nationName.nation27": "Italie",
+      "search.nationName.nation18": "France",
+      "global.leagueFull.2027.league31": "Serie A Enilive",
+      "global.leagueabbr15.2027.league13": "Premier League",
+      "global.teamFull.2027.team45": "Juventus",
+      "global.teamabbr15.2027.team48": "Napoli",
+      "global.teamabbr15.2027.team1": "Arsenal",
+      "item.raretype0": "Commune",
+      "item.raretype1": "Rare",
+      "item.raretype3": "Équipe de la semaine (TOTW)",
+      "item.raretype22": "Destin glorieux",
+      "playstyles.playstyle268": "Ombre",
+    };
+    const page = {
+      APP_YEAR: 2027,
+      services: { Localization: { localize: (key) => texts[key] || `**${key}**` } },
+      repositories: {
+        TeamConfig: {
+          getNations: () => [{ id: 27, name: "ÂóS" }, { id: 18, name: "x" }],
+          getLeagues: () => [{ id: 31 }, { id: 13 }],
+          getTeams: () => [{ id: 45, leagueId: 31 }, { id: 48, leagueId: 31 }, { id: 1, leagueId: 13 }, { id: 131524, league: 31, name: "*global.teamabbr15.2027.team131524" }, { id: 7001, league: 13, name: "Köln" }, { id: 7002, league: 31, name: "Köln" }],
+        },
+        Rarity: new Map([[3, { id: 3, name: "codé" }], [0, { id: 0 }], [22, { id: 22 }], [1, { id: 1 }], [99, { id: 99 }]]),
+      },
+    };
+    setPageForTests(page);
+    check(eaOptions("nation").map((e) => e.name).join() === "France,Italie", "nations : noms traduits par EA, triés", eaOptions("nation"));
+    check(eaOptions("league").map((e) => e.name).join() === "Premier League,Serie A Enilive", "championnats : nom complet, sinon nom court", eaOptions("league"));
+    check(eaOptions("club", { leagueId: 31 }).map((e) => e.name).join() === "Juventus,Köln (Serie A Enilive),Napoli" && eaOptions("club").length === 5, "clubs du championnat choisi (tous sans championnat), club sans nom dans le jeu écarté", eaOptions("club", { leagueId: 31 }));
+    check(eaOptions("club").filter((e) => /^Köln/.test(e.name)).map((e) => e.name).join() === "Köln (Premier League),Köln (Serie A Enilive)", "même nom pour deux clubs : championnat entre parenthèses", eaOptions("club").map((e) => e.name));
+    check(eaOptions("rarity").map((e) => e.id).join() === "0,1,22,3", "types : commune, rare, puis les promos par nom (inconnus écartés)", eaOptions("rarity"));
+    const styles = eaOptions("style");
+    check(styles.length === 24 && styles.find((e) => e.id === 268).name === "Ombre" && styles.find((e) => e.id === 266).name === "Chasseur", "24 styles de chimie : nom EA, sinon nom du script", styles.slice(16, 19));
+    const filter = normalizeFilter({ nation: 27, league: 31, club: 45, playStyle: 268, rarities: [3], holo: "only", level: "gold" });
+    const text = filterStore.describeFilter(filter);
+    check(/Équipe de la semaine \(TOTW\)/.test(text) && /holo seulement/.test(text) && /Italie/.test(text) && /Serie A Enilive/.test(text) && /Juventus/.test(text) && /style Ombre/.test(text) && !/\b(27|31|45|268)\b/.test(text), "liste des filtres : noms du jeu, plus d'identifiants", text);
+    check(eaName("nation", 999) === "" && /nation 999/.test(filterStore.describeFilter(normalizeFilter({ nation: 999 }))), "valeur inconnue : ancien libellé avec l'identifiant", filterStore.describeFilter(normalizeFilter({ nation: 999 })));
+    check(normalizeFilter({ holo: "only" }).holo === "only" && normalizeFilter({ holo: "x" }).holo === "any" && normalizeFilter({}).holo === "any", "choix holo : only / none / any par défaut");
+    setPageForTests({});
+    check(eaOptions("nation").length === 0 && eaOptions("style").find((e) => e.id === 268).name === "Ombre", "web app pas chargé : listes vides, styles avec les noms du script");
   }
 
   console.log(`\n${passes} OK, ${failures} échec(s)`);

@@ -1,6 +1,7 @@
 import { getSettings } from "../core/settings";
 import { t } from "../i18n";
-import { fetchFutbinList, futbinYear, isFutbinListUrl, searchFutbin } from "./futbinClient";
+import { searchFutbinPlayers } from "./futbinApi";
+import { fetchFutbinList, futbinYear, isFutbinListUrl } from "./futbinClient";
 import { FUTBIN_ORIGIN } from "./futbinParse";
 import { currentPrice, getPriceRecord, pricePlatform, requestPrice, seedFutbinPrice, trackPrice } from "./priceService";
 
@@ -144,7 +145,7 @@ const loadVersions = async (set) => {
   }
   const baseId = set.baseId;
   const hint = set.hint;
-  const result = hint.name ? await searchFutbin(hint.name) : { ok: false };
+  const result = hint.name ? await searchFutbinPlayers(hint.name) : { ok: false };
   if (set.stopped) {
     return;
   }

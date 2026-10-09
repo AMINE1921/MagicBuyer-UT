@@ -22,6 +22,8 @@ import {
 } from "../../core/filters";
 import { percentRange } from "../../core/listing";
 import { afterTax, floorPrice, formatCoins, profitFor, roundPrice, toInt } from "../../core/prices";
+import { eaOptions } from "../../core/eaLists";
+import { localize } from "../../core/page";
 import { getSettings } from "../../core/settings";
 import { filterStatsFor, onStateChange } from "../../core/state";
 import { locale, plural, t } from "../../i18n";
@@ -33,10 +35,10 @@ import {
   onCardSetUpdate,
   refreshCardSet,
 } from "../../prices/cardSets";
-import { searchFutbin } from "../../prices/futbinClient";
+import { searchFutbinPlayers } from "../../prices/futbinApi";
 import { currentPrice, getPriceRecord, onPriceUpdate, seedFutbinPrice } from "../../prices/priceService";
 import { loadEaPlayersCatalog, searchEaPlayersByTerm } from "../../services/datasource/eaPlayers";
-import { debounce, escapeHtml, qs, setHtml } from "../dom";
+import { debounce, escapeHtml, qs, qsa, setHtml } from "../dom";
 import {
   grid,
   numberField,
@@ -78,6 +80,62 @@ const positions = () => [
   ["CF", t("target.positionCF")],
   ["ST", t("target.positionST")],
 ];
+
+// Listes du jeu (noms EA) des critères : choix « tous » d'abord, valeur du filtre gardée même si le web
+// app ne l'a pas encore chargée (« #id »). Clubs : ceux du championnat choisi, si le web app le précise.
+const EA_ANY = {
+  rarity: "target.rarityAny",
+  style: "target.styleAny",
+  nation: "target.nationAny",
+  league: "target.leagueAny",
+  club: "target.clubAny",
+};
+
+const eaCurrent = (kind, filter) => {
+  if (!filter) {
+    return "";
+  }
+  if (kind === "rarity") {
+    return filter.rarities.length ? String(filter.rarities[0]) : "";
+  }
+  const value = { style: filter.playStyle, nation: filter.nation, league: filter.league, club: filter.club }[kind];
+  return value > 0 ? String(value) : "";
+};
+
+const eaSelectOptions = (kind, filter = getActiveFilter()) => {
+  const list = eaOptions(kind, { leagueId: filter && filter.league > 0 ? filter.league : 0 });
+  const options = [[kind === "rarity" ? "" : "0", t(EA_ANY[kind])]].concat(list.map((entry) => [String(entry.id), entry.name]));
+  const current = eaCurrent(kind, filter);
+  if (current !== "" && !options.some(([value]) => value === current)) {
+    options.push([current, `#${current}`]);
+  }
+  return options;
+};
+
+const holoOptions = () => [
+  ["any", t("target.holoAny")],
+  ["only", t("target.holoOnly")],
+  ["none", t("target.holoNone")],
+];
+
+// Remplit les listes du jeu (au chargement du web app et de ses textes, au changement de championnat pour
+// les clubs). true si une liste a changé (sa valeur affichée est alors à relire).
+const fillEaLists = (root) => {
+  const filter = getActiveFilter();
+  let changed = false;
+  qsa(root, "select[data-ea-list]").forEach((select) => {
+    const kind = select.dataset.eaList;
+    const options = eaSelectOptions(kind, filter);
+    const signature = options.map(([value, label]) => `${value}:${label}`).join("|");
+    if (select.__mbSignature === signature) {
+      return;
+    }
+    select.__mbSignature = signature;
+    select.innerHTML = options.map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join("");
+    changed = true;
+  });
+  return changed;
+};
 
 let unsubscribeFilters = null;
 let unsubscribePrices = null;
@@ -366,7 +424,13 @@ export const targetPageHtml = () => `
       selectField({ bind: "f:level", label: t("target.quality"), options: levels() }),
       selectField({ bind: "f:positionChoice", label: t("target.position"), options: positions() }),
       numberField({ bind: "f:minRating", label: t("target.minRating"), placeholder: "—", max: 99 }),
-      numberField({ bind: "f:maxRating", label: t("target.maxRating"), placeholder: "—", max: 99 })
+      numberField({ bind: "f:maxRating", label: t("target.maxRating"), placeholder: "—", max: 99 }),
+      selectField({ bind: "f:rarityChoice", label: t("target.rarity"), list: "rarity", options: eaSelectOptions("rarity") }),
+      selectField({ bind: "f:holo", label: t("target.holo"), options: holoOptions() }),
+      selectField({ bind: "f:playStyleField", label: t("target.playStyle"), list: "style", numeric: true, options: eaSelectOptions("style") }),
+      selectField({ bind: "f:nationField", label: t("target.nation"), list: "nation", numeric: true, options: eaSelectOptions("nation") }),
+      selectField({ bind: "f:leagueField", label: t("target.league"), list: "league", numeric: true, options: eaSelectOptions("league") }),
+      selectField({ bind: "f:clubField", label: t("target.club"), list: "club", numeric: true, options: eaSelectOptions("club") })
     )
   )}
   ${section(
@@ -464,12 +528,7 @@ export const targetPageHtml = () => `
   ${section(
     t("target.sectionAdvanced"),
     grid(
-      numberField({ bind: "f:definitionId", label: t("target.definitionId"), placeholder: t("target.definitionIdPlaceholder") }),
-      textField({ bind: "f:raritiesText", label: t("target.rarityIds"), placeholder: t("target.rarityIdsPlaceholder") }),
-      numberField({ bind: "f:nationField", label: t("target.nationId"), placeholder: "—" }),
-      numberField({ bind: "f:leagueField", label: t("target.leagueId"), placeholder: "—" }),
-      numberField({ bind: "f:clubField", label: t("target.clubId"), placeholder: "—" }),
-      numberField({ bind: "f:playStyleField", label: t("target.playStyleId"), placeholder: "—" })
+      numberField({ bind: "f:definitionId", label: t("target.definitionId"), placeholder: t("target.definitionIdPlaceholder") })
     ) +
       `<p class="mb-hint">${t("target.advancedHint")}</p>`
   )}
@@ -491,14 +550,13 @@ const VIRTUAL = {
     write: (value) =>
       /^13[0-2]$/.test(value) ? { zone: Number(value), position: "any" } : { zone: -1, position: value || "any" },
   },
-  raritiesText: {
-    read: (filter) => filter.rarities.join(", "),
-    write: (value) => ({
-      rarities: String(value || "")
-        .split(/[\s,;]+/)
-        .map((v) => parseInt(v, 10))
-        .filter((v) => Number.isFinite(v) && v >= 0),
-    }),
+  // Type (rareté EA) : un seul choisi dans la liste ; « tous » = aucune rareté.
+  rarityChoice: {
+    read: (filter) => (filter.rarities.length ? String(filter.rarities[0]) : ""),
+    write: (value) => {
+      const id = parseInt(value, 10);
+      return { rarities: Number.isFinite(id) && id >= 0 ? [id] : [] };
+    },
   },
   nationField: { read: (f) => (f.nation > 0 ? f.nation : 0), write: (v) => ({ nation: toInt(v) || -1 }) },
   leagueField: { read: (f) => (f.league > 0 ? f.league : 0), write: (v) => ({ league: toInt(v) || -1 }) },
@@ -645,6 +703,7 @@ export const bindTargetPage = (page, refreshAll) => {
   };
   const listInput = qs(page, '[data-bind="f:futbinList"]');
   const renderList = () => {
+    fillEaLists(page);
     setHtml(listEl, listHtml());
     setHtml(chipEl, playerChipHtml());
     setHtml(warningEl, targetWarningHtml());
@@ -657,6 +716,15 @@ export const bindTargetPage = (page, refreshAll) => {
       listInput.placeholder = auto || t("target.futbinListPlaceholder");
     }
   };
+
+  // Listes du jeu remplies juste avant d'être ouvertes (le web app peut avoir chargé ses données depuis).
+  const fillBeforeOpen = (event) => {
+    if (event.target && event.target.closest && event.target.closest("select[data-ea-list]") && fillEaLists(page)) {
+      refreshAll();
+    }
+  };
+  page.addEventListener("pointerdown", fillBeforeOpen, true);
+  page.addEventListener("focusin", fillBeforeOpen);
 
   if (unsubscribeFilters) {
     unsubscribeFilters();
@@ -693,7 +761,15 @@ export const bindTargetPage = (page, refreshAll) => {
   });
   syncLiveTracking();
   clearInterval(liveTimer);
-  liveTimer = setInterval(renderLive, 15000);
+  liveTimer = setInterval(() => {
+    renderLive();
+    if (fillEaLists(page)) {
+      refreshAll();
+    }
+  }, 15000);
+  if (fillEaLists(page)) {
+    refreshAll();
+  }
 
   // Bilan par filtre mis à jour en place (au plus une fois par seconde), sans redessiner la liste.
   if (unsubscribeStats) {
@@ -775,7 +851,17 @@ export const bindTargetPage = (page, refreshAll) => {
     input.setAttribute("aria-expanded", "true");
   };
 
-  // Recherche FUTBIN (toutes les versions : base, spéciales, autre club…), catalogue EA en secours.
+  // Version affichée d'un résultat de l'API FUTBIN : nom EA de la promo, « holo » pour une carte holo.
+  const versionLabel = (row) => {
+    if (row.version) {
+      return row.version;
+    }
+    const promo = row.rareType > 0 ? localize(`item.raretype${row.rareType}`, String(row.promo || "").replace(/_/g, " ")) : "";
+    return [promo, row.holo ? t("target.hitHolo") : ""].filter(Boolean).join(" · ");
+  };
+
+  // Recherche FUTBIN (toutes les versions : base, spéciales, autre club…) par l'API de l'appli, page
+  // futbin.com en secours sans page cachée (échec rapide), catalogue EA en dernier recours.
   const search = debounce(async () => {
     const term = input.value.trim();
     if (term.length < 2) {
@@ -787,9 +873,12 @@ export const bindTargetPage = (page, refreshAll) => {
     let found = [];
     let source = "futbin";
     if (term.length >= 3) {
-      const res = await searchFutbin(term);
+      const res = await searchFutbinPlayers(term, { allowIframe: false });
       if (res.ok) {
-        found = res.rows.filter((row) => row.eaId).slice(0, 15).map((row) => Object.assign({ source: "futbin" }, row));
+        found = res.rows
+          .filter((row) => row.eaId)
+          .slice(0, 15)
+          .map((row) => Object.assign({ source: "futbin" }, row, { version: versionLabel(row) }));
       }
     }
     if (!found.length) {

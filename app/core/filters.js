@@ -1,4 +1,5 @@
 import { t } from "../i18n";
+import { eaName } from "./eaLists";
 import { pageGlobal, toPageArray } from "./page";
 import { ceilPrice, floorPrice, priceAbove, toInt } from "./prices";
 import { loadJson, loadLegacy, saveJson } from "./storage";
@@ -22,6 +23,9 @@ export const DEFAULT_FILTER = {
   league: -1,
   club: -1,
   playStyle: -1,
+  // Cartes holographiques : "any" (toutes), "only" (holo seulement), "none" (sans holo). Tri fait par le
+  // bot sur les résultats (la recherche EA ne filtre pas les holo).
+  holo: "any",
   category: "any",
   minRating: 0,
   maxRating: 0,
@@ -81,6 +85,7 @@ export const normalizeFilter = (raw) => {
   ["level", "position", "category"].forEach((key) => {
     filter[key] = filter[key] ? String(filter[key]) : "any";
   });
+  filter.holo = ["only", "none"].includes(filter.holo) ? filter.holo : "any";
   filter.priceMode = PRICE_MODES.includes(filter.priceMode) ? filter.priceMode : "fixed";
   const percent = parseFloat(filter.futbinPercent);
   filter.futbinPercent = Number.isFinite(percent) ? Math.min(150, Math.max(10, percent)) : 90;
@@ -404,22 +409,26 @@ export const describeFilter = (filter) => {
     parts.push(t(levels[filter.level]));
   }
   if (filter.rarities.length) {
-    parts.push(t("misc.filterRarity", { ids: filter.rarities.join("/") }));
+    const named = filter.rarities.map((id) => eaName("rarity", id));
+    parts.push(named.every(Boolean) ? named.join(" / ") : t("misc.filterRarity", { ids: filter.rarities.join("/") }));
+  }
+  if (filter.holo !== "any") {
+    parts.push(t(filter.holo === "only" ? "misc.filterHoloOnly" : "misc.filterHoloNone"));
   }
   if (filter.position && filter.position !== "any") {
     parts.push(filter.position);
   }
   if (filter.nation > 0) {
-    parts.push(t("misc.filterNation", { id: filter.nation }));
+    parts.push(eaName("nation", filter.nation) || t("misc.filterNation", { id: filter.nation }));
   }
   if (filter.league > 0) {
-    parts.push(t("misc.filterLeague", { id: filter.league }));
+    parts.push(eaName("league", filter.league) || t("misc.filterLeague", { id: filter.league }));
   }
   if (filter.club > 0) {
-    parts.push(t("misc.filterClub", { id: filter.club }));
+    parts.push(eaName("club", filter.club) || t("misc.filterClub", { id: filter.club }));
   }
   if (filter.playStyle > 0) {
-    parts.push(t("misc.filterStyle", { id: filter.playStyle }));
+    parts.push(t("misc.filterStyle", { name: eaName("style", filter.playStyle) || filter.playStyle }));
   }
   if (filter.minRating || filter.maxRating) {
     parts.push(t("misc.filterRating", { min: filter.minRating || "…", max: filter.maxRating || "…" }));

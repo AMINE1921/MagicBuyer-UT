@@ -2,7 +2,7 @@ module.exports = {
   headers: {
     name: "MagicBuyer-UT",
     namespace: "http://tampermonkey.net/",
-    version: "5.4.4",
+    version: "5.4.5",
     description: "Sniper / autobuyer pour le web app EA FC 27 Ultimate Team",
     author: "AMINE1921",
     match: [

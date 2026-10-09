@@ -1,6 +1,7 @@
+import { getSettings } from "../core/settings";
 import { sendExternalRequest } from "../services/externalRequest";
 import { FUTBIN_ORIGIN, isPlausiblePrice } from "./futbinParse";
-import { futbinYear } from "./futbinClient";
+import { futbinYear, searchFutbin } from "./futbinClient";
 
 // API JSON de l'appli FUTBIN (futbin.org). Une recherche par nom renvoie toutes les versions d'un
 // joueur : identifiant EA exact (resource_id), prix console et PC, prix précédent, plage de prix EA,
@@ -229,6 +230,38 @@ export const searchFutbinApi = async (query) => {
     remember(key, res.cards);
   }
   return res;
+};
+
+// Carte de l'API → ligne de recherche (forme des résultats de la recherche futbin.com), avec la promo et la marque holo.
+const searchRowOf = (card) => ({
+  futbinId: card.futbinId,
+  eaId: card.eaId,
+  name: card.name,
+  rating: card.rating,
+  position: card.position,
+  url: card.url,
+  version: "",
+  club: card.clubName,
+  nation: card.nationName,
+  prices: card.prices,
+  rareType: card.rareType,
+  promo: card.promo,
+  holo: card.holo,
+});
+
+// Recherche de joueurs par nom (choix du joueur d'un filtre, versions d'un joueur) : API de l'appli
+// FUTBIN, toutes les versions en ~0,2 s ; la recherche futbin.com, que FUTBIN refuse souvent au script
+// (403, puis attente de la page cachée), ne sert qu'en secours ou avec la source « pages seules ».
+// pageOptions : options de la recherche futbin.com (ex. { allowIframe: false } pour échouer vite).
+// Réponses : { ok, rows, via } ou l'échec de la recherche futbin.com.
+export const searchFutbinPlayers = async (query, pageOptions = {}) => {
+  if (getSettings().prices.source !== "pages") {
+    const api = await searchFutbinApi(query);
+    if (api.ok && api.cards.length) {
+      return { ok: true, rows: api.cards.map(searchRowOf), via: "api" };
+    }
+  }
+  return searchFutbin(query, pageOptions);
 };
 
 // Liste filtrée (32 cartes par page), les moins chères d'abord pour la plateforme, cartes sans prix

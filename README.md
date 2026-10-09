@@ -187,6 +187,16 @@ npm run build:prod
 
 Le script est généré dans `dist/fut-auto-buyer.user.js` (en-tête Tampermonkey dans `tampermonkey-header.js`).
 
+## Nouveautés 5.4.5
+
+- Recherche de joueur (onglet Cible) par l'API de l'appli FUTBIN : toutes les versions en ~0,2 s, au lieu d'attendre
+  la recherche futbin.com que FUTBIN refuse au script (jusqu'à 20 s bloqué). Versions spéciales nommées par EA,
+  cartes holo signalées. Les filtres « joueur, toutes versions » trouvent ses versions de la même façon.
+- Onglet Cible : Type (toutes les raretés du jeu), Holo (holo seulement / sans holo), Style de chimie, Nation,
+  Championnat et Club se choisissent dans des listes avec les noms du jeu, à côté de Qualité et Poste : plus aucun
+  identifiant à taper. Les clubs suivent le championnat choisi ; deux clubs du même nom (équipes masculine et
+  féminine) portent leur championnat entre parenthèses. La liste des filtres affiche ces noms (ex. « style Ombre »).
+
 ## Nouveautés 5.4.4
 
 - Solveur DCE : les cartes à acheter (joueurs qui manquent au club, ex. « Italie : 2 min. ») sont lues par l'API
