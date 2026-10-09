@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { addLog } from "./state";
 
 const write = (type, text, meta) => {
@@ -19,4 +20,4 @@ export const log = {
 };
 
 export const errorMessage = (e) =>
-  (e && (e.message || e.statusText || e.status)) || String(e || "erreur inconnue");
+  (e && (e.message || e.statusText || e.status)) || String(e || t("misc.errUnknown"));

@@ -1,3 +1,7 @@
 .idea
 node_modules
 dist
+test/build
+.DS_Store
+test/build-solver
+test/web/fut-auto-buyer.user.js

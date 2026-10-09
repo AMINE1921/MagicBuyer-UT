@@ -1,14 +1,24 @@
 import { VERSION } from "./config";
 import { runMigrations } from "./core/migrate";
+import { hookUsage } from "./core/usage";
+import { hookCollection } from "./core/galleryCollection";
 import { getPage } from "./core/page";
 import { flushSettings, getSettings } from "./core/settings";
-import { hookCardPrices } from "./ui/cardPrices";
+import { hookCardPrices, tickBuyCheck } from "./ui/cardPrices";
 import { bootFutbinBridge, isFutbinPage } from "./ui/futbinBridge";
 import { tickEaHooks } from "./ui/eaHooks";
 import { ensureHud } from "./ui/hud";
 import { ensurePanel, injectStyles, openPanel } from "./ui/panel";
+import { tickGallery } from "./ui/galleryScreen";
+import { tickHotkeys } from "./ui/hotkeys";
 import { hookQuickList } from "./ui/quickListFutbin";
 import { tickSbc } from "./ui/sbcPanel";
+import { tickSbcTools } from "./ui/sbcTools";
+import { tickSolver } from "./ui/solverPanel";
+import { bindResultsSettings, tickResults } from "./ui/searchResults";
+import { tickListTools } from "./ui/listTools";
+import { hookPackAnimation } from "./ui/packAnimation";
+import { tickPicks } from "./ui/picksHelper";
 
 const isTopFrame = () => {
   try {
@@ -30,7 +40,7 @@ const boot = () => {
     }
     tickEaHooks();
     // Intégrations FUTBIN dans le web app : installées dès que les classes EA existent.
-    [hookCardPrices, hookQuickList, tickSbc].forEach((step) => {
+    [hookUsage, hookCollection, hookCardPrices, tickBuyCheck, hookQuickList, tickSbc, tickSbcTools, tickSolver, tickHotkeys, tickGallery, bindResultsSettings, tickResults, tickListTools, hookPackAnimation, tickPicks].forEach((step) => {
       try {
         step();
       } catch (e) {}

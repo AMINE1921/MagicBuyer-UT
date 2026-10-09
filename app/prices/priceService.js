@@ -1,5 +1,6 @@
 import { getSettings } from "../core/settings";
 import { loadJson, saveJson } from "../core/storage";
+import { t } from "../i18n";
 import { getUserPlatform } from "../utils/userUtil";
 import { absoluteUrl, isPlausiblePrice } from "./futbinParse";
 import {
@@ -8,6 +9,16 @@ import {
   resetFutbinClientForTests,
   resolveFutbinLink,
 } from "./futbinClient";
+import {
+  cachedApiCard,
+  futbinApiPausedUntil,
+  futbinApiRequestCount,
+  normalizeApiQuery,
+  resetFutbinApiForTests,
+  searchFutbinApi,
+} from "./futbinApi";
+import { eaCatalogLoaded, eaPlayerLoaded, loadEaPlayersCatalog } from "../services/datasource/eaPlayers";
+import { setItemScore } from "./itemScores";
 
 // Prix FUTBIN tenus à jour intelligemment :
 // - cibles du bot et achats SBC ("hot") : relus toutes les 60 à 120 s (réglable) ;
@@ -15,12 +26,16 @@ import {
 //   un peu moins souvent si le prix ne bouge pas (jamais au-delà de 6 min) ;
 // - une seule requête FUTBIN à la fois, espacées, et ralentissement automatique si FUTBIN bloque ;
 // - un saut de prix anormal est vérifié une seconde fois avant d'être utilisé par le bot.
+// Source : l'API de l'appli FUTBIN (futbin.org, JSON, toutes les versions d'un joueur en une requête)
+// d'abord, les pages futbin.com en secours (API muette, en pause, ou carte introuvable par son nom).
 
 const LINKS_KEY = "futbinLinks";
 const PRICES_KEY = "futbinPrices";
 const PRIORITY = { hot: 0, request: 1, visible: 2 };
 const MISS_RETRY = 30 * 60 * 1000;
 const ERROR_RETRY = 90 * 1000;
+// Recherche FUTBIN refusée (403) : seule la carte concernée attend, la file continue.
+const SEARCH_BLOCK_RETRY = 5 * 60 * 1000;
 const NO_PRICE_RETRY = 10 * 60 * 1000;
 const SUSPECT_RECHECK = 20 * 1000;
 const MAX_VISIBLE_AGE = 6 * 60 * 1000;
@@ -60,6 +75,9 @@ let tickTimer = null;
 
 const settings = () => getSettings().prices;
 
+// "api" (défaut) : API de l'appli FUTBIN puis pages en secours ; "pages" : pages futbin.com seules.
+export const priceSource = () => (settings().source === "pages" ? "pages" : "api");
+
 export const pricePlatform = () => {
   const chosen = settings().platform;
   if (chosen === "pc" || chosen === "console") {
@@ -82,7 +100,17 @@ export const onPriceUpdate = (fn) => {
   return () => listeners.delete(fn);
 };
 
-export const getFutbinStatus = () => Object.assign({ queue: queue.size, tracked: interest.size }, status);
+export const getFutbinStatus = () =>
+  Object.assign(
+    {
+      queue: queue.size,
+      tracked: interest.size,
+      source: priceSource(),
+      apiRequests: futbinApiRequestCount(),
+      apiPausedUntil: futbinApiPausedUntil(),
+    },
+    status
+  );
 
 const persistSoon = () => {
   clearTimeout(saveTimer);
@@ -340,8 +368,6 @@ const markSuccess = () => {
 const baseRecord = (id) =>
   records.get(id) || { definitionId: id, price: 0, prices: [], fetchedAt: 0, unchanged: 0, failures: 0, suspect: null };
 
-const BLOCKED_MESSAGE = "FUTBIN demande une vérification (Cloudflare) : onglet FUTBIN → « Ouvrir futbin.com »";
-
 const setRecord = (id, record, patch) => {
   records.set(id, Object.assign(record, patch));
   emit(id);
@@ -351,9 +377,13 @@ const setRecord = (id, record, patch) => {
 const handleFailure = (id, record, result, now, link) => {
   if (result.deferred) {
     // Requête directe refusée récemment : les cartes affichées attendent sans rien envoyer.
-    setRecord(id, record, { status: "paused", nextRetryAt: Math.max(futbinDirectPausedUntil(), now + ERROR_RETRY) });
+    setRecord(id, record, { status: "paused", nextRetryAt: Math.max(futbinDirectPausedUntil(result.kind), now + ERROR_RETRY) });
+  } else if (result.blocked && result.kind === "list") {
+    // Recherche refusée (lien de la carte inconnu) : les cartes dont la page est connue continuent.
+    status.lastError = t("misc.futbinBlocked");
+    setRecord(id, record, { status: "error", nextRetryAt: now + SEARCH_BLOCK_RETRY });
   } else if (result.blocked) {
-    markBlocked(BLOCKED_MESSAGE);
+    markBlocked(t("misc.futbinBlocked"));
     setRecord(id, record, { status: "error", nextRetryAt: status.blockedUntil });
   } else if (result.noPrice) {
     setRecord(id, record, { status: "miss", url: link ? link.url : record.url, nextRetryAt: now + NO_PRICE_RETRY });
@@ -363,6 +393,105 @@ const handleFailure = (id, record, result, now, link) => {
   }
 };
 
+// ------------------------------------------------------------- API de l'appli FUTBIN
+
+// Deux recherches au plus par carte avant de passer aux pages FUTBIN.
+const API_TRIES = 2;
+const CATALOG_RETRY = 10 * 60 * 1000;
+let catalogRequestedAt = 0;
+
+// Catalogue des joueurs EA (prénom, nom, surnom par identifiant) : chargé dans le navigateur, une fois
+// (nouvel essai 10 min plus tard s'il n'a pas pu être lu).
+const ensureCatalog = () => {
+  if (typeof window === "undefined" || eaCatalogLoaded() || Date.now() - catalogRequestedAt < CATALOG_RETRY) {
+    return;
+  }
+  catalogRequestedAt = Date.now();
+  loadEaPlayersCatalog().catch(() => {});
+};
+
+const nameFromUrl = (url) => {
+  const match = String(url || "").match(/\/player\/\d+\/([a-z0-9-]+)/i);
+  return match && match[1] !== "player" ? match[1].replace(/-/g, " ") : "";
+};
+
+// Recherches à essayer pour une carte : surnom EA, prénom + nom, nom (catalogue EA), puis le nom tiré
+// du lien FUTBIN connu et celui fourni par l'appelant.
+export const apiQueriesFor = (id, hint, link) => {
+  const player = eaPlayerLoaded(id & 0xffffff) || eaPlayerLoaded(id);
+  const known = link && !link.miss ? link : null;
+  const names = [
+    player && player.commonName,
+    player && `${player.firstName || ""} ${player.lastName || ""}`,
+    player && player.lastName,
+    known && nameFromUrl(known.url),
+    known && known.name,
+    hint && hint.name,
+  ];
+  const seen = new Set();
+  return names
+    .map(normalizeApiQuery)
+    .filter((query) => query.length >= 2 && !seen.has(query) && seen.add(query));
+};
+
+const metaOf = (card, platform) => ({
+  source: "api",
+  holo: card.holo,
+  promo: card.promo,
+  rareType: card.rareType,
+  closing: card.closing[platform] || 0,
+  range: card.range[platform] || [0, 0],
+  trend: card.trend[platform],
+});
+
+const linkOfCard = (card, now) => ({ futbinId: card.futbinId, url: card.url, name: card.fullName || card.name, rating: card.rating, at: now });
+
+// Autres versions du même joueur (ou cartes suivies) lues dans la même réponse : prix et lien gardés,
+// sans requête de plus.
+const seedApiCards = (cards, id, platform) => {
+  const base = id & 0xffffff;
+  cards.forEach((card) => {
+    if (card.eaId === id || (card.baseId !== base && !interest.has(card.eaId))) {
+      return;
+    }
+    seedFutbinPrice(card.eaId, {
+      price: card.prices[platform],
+      platform,
+      link: { futbinId: card.futbinId, url: card.url, name: card.fullName || card.name, rating: card.rating },
+      meta: metaOf(card, platform),
+    });
+  });
+};
+
+const readViaApi = async (id, hint, link, platform) => {
+  ensureCatalog();
+  const recent = cachedApiCard(id);
+  if (recent) {
+    return { ok: true, card: recent };
+  }
+  const queries = apiQueriesFor(id, hint, link).slice(0, API_TRIES);
+  let failure = { ok: false, notFound: true };
+  for (const query of queries) {
+    const res = await searchFutbinApi(query);
+    if (!res.cached && !res.deferred) {
+      status.requests += 1;
+    }
+    if (!res.ok) {
+      if (res.blocked) {
+        return res;
+      }
+      failure = res;
+      continue;
+    }
+    seedApiCards(res.cards, id, platform);
+    const card = res.cards.find((entry) => entry.eaId === id);
+    if (card) {
+      return { ok: true, card };
+    }
+  }
+  return failure;
+};
+
 const processJob = async (job) => {
   const id = job.id;
   const now = Date.now();
@@ -370,6 +499,28 @@ const processJob = async (job) => {
   // La page FUTBIN cachée (secours) est réservée au bot, aux DCE et aux demandes explicites.
   const options = { allowIframe: job.priority !== PRIORITY.visible };
   let link = links[id];
+  if (priceSource() === "api") {
+    const platform = pricePlatform();
+    const api = await readViaApi(id, job.hint, link, platform);
+    if (api.ok) {
+      const found = linkOfCard(api.card, now);
+      if (!link || link.miss) {
+        links[id] = found;
+        persistSoon();
+      }
+      const price = api.card.prices[platform];
+      if (!price) {
+        // Carte connue de FUTBIN mais sans prix (hors marché) : même traitement qu'une page sans prix.
+        handleFailure(id, record, { noPrice: true }, now, found);
+        return;
+      }
+      markSuccess();
+      applyPrice(id, record, { price, prices: [price], updatedAgoSec: null, meta: metaOf(api.card, platform) }, links[id] || found, platform);
+      return;
+    }
+    // API muette, en pause ou carte introuvable par son nom : lecture par les pages FUTBIN.
+    link = links[id];
+  }
   if (link && link.miss && link.until > now) {
     setRecord(id, record, { status: "miss", nextRetryAt: link.until });
     return;
@@ -394,6 +545,11 @@ const processJob = async (job) => {
   status.requests += 1;
   const platform = pricePlatform();
   const result = await fetchFutbinPrice(link, platform, options);
+  // Score d'objet gardé seulement si la page lue est bien celle de la carte (quand FUTBIN le déclare).
+  const samePage = !result.pageEaId || result.pageEaId === id || (result.pageEaId & 0xffffff) === (id & 0xffffff);
+  if (result.itemScore && samePage) {
+    setItemScore(id, result.itemScore, result.itemScoreExact);
+  }
   if (!result.ok) {
     if (result.notFound) {
       delete links[id];
@@ -436,6 +592,8 @@ const applyPrice = (id, record, result, link, platform) => {
   setRecord(id, record, {
     prices: result.prices,
     updatedAgoSec: result.updatedAgoSec,
+    // Lecture par l'API : promo, holo, prix précédent, plage de prix EA et tendance de FUTBIN.
+    meta: result.meta || null,
     fetchedAt: now,
     url: link.url,
     name: link.name,
@@ -454,10 +612,13 @@ const applyPrice = (id, record, result, link, platform) => {
 
 // Prix lu ailleurs sur FUTBIN (ex. JSON d'une page d'équipe) : même traitement qu'une lecture de la
 // page joueur (garde-fou compris). Le lien FUTBIN fourni évite une recherche au prochain rafraîchissement.
-export const seedFutbinPrice = (definitionId, { price, platform, link }) => {
+export const seedFutbinPrice = (definitionId, { price, platform, link, itemScore, itemScoreExact, meta }) => {
   const id = Number(definitionId) || 0;
   if (!id) {
     return;
+  }
+  if (itemScore) {
+    setItemScore(id, itemScore, itemScoreExact);
   }
   if (link && link.futbinId && (!links[id] || links[id].miss)) {
     links[id] = { futbinId: link.futbinId, url: absoluteUrl(link.url), name: link.name || "", rating: link.rating || 0, at: Date.now() };
@@ -471,7 +632,7 @@ export const seedFutbinPrice = (definitionId, { price, platform, link }) => {
     return; // lecture plus récente de la page joueur
   }
   const target = links[id] && !links[id].miss ? links[id] : { url: record.url || "", name: record.name || "" };
-  applyPrice(id, record, { price: Number(price), prices: [Number(price)], updatedAgoSec: null }, target, platform);
+  applyPrice(id, record, { price: Number(price), prices: [Number(price)], updatedAgoSec: null, meta: meta || null }, target, platform);
 };
 
 export const clearFutbinCache = () => {
@@ -489,6 +650,7 @@ export const clearFutbinCache = () => {
 // Utilisé par les tests.
 export const resetPriceServiceForTests = () => {
   resetFutbinClientForTests();
+  resetFutbinApiForTests();
   links = {};
   records.clear();
   queue.clear();

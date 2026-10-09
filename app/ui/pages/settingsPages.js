@@ -7,7 +7,8 @@ import { formatCoins } from "../../core/prices";
 import { TIMING_PRESETS, applyTimingPreset, getSettings, setSetting } from "../../core/settings";
 import { getState, updateState } from "../../core/state";
 import { beginTask, cancelTask, currentTask, endTask } from "../../core/tasks";
-import { qs, setHtml } from "../dom";
+import { LANGUAGES, gameLanguage, t } from "../../i18n";
+import { qs, setHtml, setText } from "../dom";
 import {
   grid,
   numberField,
@@ -23,27 +24,31 @@ import {
 
 export const buyPageHtml = () => `
   ${section(
-    "Achat immédiat",
+    t("ui.buyNowSection"),
     grid(
-      numberField({ bind: "s:buy.maxPerSearch", label: "Achats max par recherche", min: 1, max: 5, hint: "1 conseillé : la carte la moins chère est prise en premier." }),
-      numberField({ bind: "s:buy.stopAfterPurchases", label: "Arrêter après", placeholder: "illimité", hint: "achats (0 = illimité)" }),
-      priceField({ bind: "s:buy.coinsReserve", label: "Réserve de coins", hint: "Le bot ne descend jamais sous ce solde." }),
-      numberField({ bind: "s:buy.maxResults", label: "Seuil de résultats", placeholder: "désactivé", hint: "N'achète pas si la recherche renvoie plus de N cartes (prix max trop haut)." }),
-      toggleField({ bind: "s:buy.skipGk", label: "Ignorer les gardiens", wide: true })
+      numberField({ bind: "s:buy.maxPerSearch", label: t("ui.buyMaxPerSearch"), min: 1, max: 5, hint: t("ui.buyMaxPerSearchHint") }),
+      numberField({ bind: "s:buy.stopAfterPurchases", label: t("ui.buyStopAfter"), placeholder: t("ui.unlimited"), hint: t("ui.buyStopAfterHint") }),
+      priceField({ bind: "s:buy.coinsReserve", label: t("ui.buyCoinsReserve"), hint: t("ui.buyCoinsReserveHint") }),
+      numberField({ bind: "s:buy.maxResults", label: t("ui.buyMaxResults"), placeholder: t("ui.disabledPlaceholder"), hint: t("ui.buyMaxResultsHint") }),
+      toggleField({ bind: "s:buy.skipGk", label: t("ui.buySkipGk"), wide: true }),
+      toggleField({ bind: "s:buy.profitCheck", label: t("ui.buyProfitCheck"), wide: true, hint: t("ui.buyProfitCheckHint") }),
+      numberField({ bind: "s:buy.minProfit", label: t("ui.buyMinProfit"), min: 0, max: 1000000, placeholder: t("ui.buyMinProfitPlaceholder"), hint: t("ui.buyMinProfitHint") }),
+      numberField({ bind: "s:buy.fallingGuard", label: t("ui.buyFallingGuard"), min: 0, max: 50, placeholder: t("ui.disabledPlaceholder"), hint: t("ui.buyFallingGuardHint") }),
+      numberField({ bind: "s:buy.marketRefreshMinutes", label: t("ui.buyMarketRefresh"), min: 3, max: 60, placeholder: "10", hint: t("ui.buyMarketRefreshHint") })
     )
   )}
-  <div class="mb-note">Acheter à un pourcentage du prix FUTBIN (suivi en direct pendant le bot) : choisis « % du prix FUTBIN » dans le bloc Prix de l'onglet Cible, filtre par filtre.</div>
+  <div class="mb-note">${t("ui.buyFutbinNote")}</div>
   ${section(
-    "Enchères",
+    t("ui.bidSection"),
     grid(
-      toggleField({ bind: "s:bid.enabled", label: "Enchérir aussi", wide: true, hint: "Enchérit sur les cartes qui expirent bientôt, jusqu'à l'« Enchère max » du filtre." }),
-      rangeField({ bind: "s:bid.expiresWithin", label: "Si fin dans moins de", unit: "M", placeholder: "5M", hint: "S, M ou H (ex. 90S, 5M)" }),
-      numberField({ bind: "s:bid.maxPerSearch", label: "Enchères par recherche", min: 1, max: 5 }),
-      numberField({ bind: "s:bid.searchEvery", label: "Recherche d'enchères toutes les", min: 2, max: 20, hint: "recherches, quand le filtre a aussi un prix d'achat max" }),
-      numberField({ bind: "s:bid.maxActive", label: "Enchères actives max", min: 1, max: 50 }),
-      toggleField({ bind: "s:bid.exact", label: "Enchérir directement au max" }),
-      toggleField({ bind: "s:bid.rebid", label: "Surenchérir si dépassé" }),
-      toggleField({ bind: "s:bid.clearLost", label: "Retirer les enchères perdues du suivi", wide: true })
+      toggleField({ bind: "s:bid.enabled", label: t("ui.bidEnabled"), wide: true, hint: t("ui.bidEnabledHint") }),
+      rangeField({ bind: "s:bid.expiresWithin", label: t("ui.bidExpiresWithin"), unit: "M", placeholder: "5M", hint: t("ui.bidExpiresWithinHint") }),
+      numberField({ bind: "s:bid.maxPerSearch", label: t("ui.bidMaxPerSearch"), min: 1, max: 5 }),
+      numberField({ bind: "s:bid.searchEvery", label: t("ui.bidSearchEvery"), min: 2, max: 20, hint: t("ui.bidSearchEveryHint") }),
+      numberField({ bind: "s:bid.maxActive", label: t("ui.bidMaxActive"), min: 1, max: 50 }),
+      toggleField({ bind: "s:bid.exact", label: t("ui.bidExact") }),
+      toggleField({ bind: "s:bid.rebid", label: t("ui.bidRebid") }),
+      toggleField({ bind: "s:bid.clearLost", label: t("ui.bidClearLost"), wide: true })
     )
   )}
 `;
@@ -52,53 +57,63 @@ export const buyPageHtml = () => `
 
 export const sellPageHtml = () => `
   ${section(
-    "Après un achat",
+    t("ui.afterBuySection"),
     grid(
       selectField({
         bind: "s:sell.mode",
-        label: "Que faire de la carte ?",
+        label: t("ui.sellMode"),
         wide: true,
         options: [
-          ["list", "La mettre en vente automatiquement"],
-          ["transfer", "L'envoyer dans la liste des transferts"],
-          ["none", "La laisser dans les non attribués"],
+          ["list", t("ui.sellModeList")],
+          ["transfer", t("ui.sellModeTransfer")],
+          ["none", t("ui.sellModeNone")],
         ],
       }),
       selectField({
         bind: "s:sell.duration",
-        label: "Durée de l'annonce",
-        options: [["1H", "1 heure"], ["3H", "3 heures"], ["6H", "6 heures"], ["12H", "12 heures"], ["1D", "1 jour"], ["3D", "3 jours"]],
+        label: t("ui.sellDuration"),
+        options: [
+          ["1H", t("ui.duration1H")],
+          ["3H", t("ui.duration3H")],
+          ["6H", t("ui.duration6H")],
+          ["12H", t("ui.duration12H")],
+          ["1D", t("ui.duration1D")],
+          ["3D", t("ui.duration3D")],
+        ],
       }),
-      priceField({ bind: "s:sell.minProfit", label: "Bénéfice minimum", hint: "Après taxe EA de 5 %. Sinon la carte n'est pas mise en vente." }),
-      numberField({ bind: "s:sell.maxRating", label: "Ne pas vendre au-dessus de la note", placeholder: "désactivé" })
+      // Bénéfice en coins (10, 100…), pas un prix EA : un champ prix ramènerait tout montant < 150 à 0.
+      numberField({ bind: "s:sell.minProfit", label: t("ui.sellMinProfit"), min: 0, max: 1000000, hint: t("ui.sellMinProfitHint") }),
+      toggleField({ bind: "s:sell.noLoss", label: t("ui.sellNoLoss"), wide: true, hint: t("ui.sellNoLossHint") }),
+      toggleField({ bind: "s:sell.noLossOwnCards", label: t("ui.sellNoLossOwnCards"), wide: true, showIf: "s:sell.noLoss=true", hint: t("ui.sellNoLossOwnCardsHint") }),
+      numberField({ bind: "s:sell.maxRating", label: t("ui.sellMaxRating"), placeholder: t("ui.disabledPlaceholder") })
     )
   )}
   ${section(
-    "Prix de revente",
+    t("ui.resaleSection"),
     grid(
       selectField({
         bind: "s:sell.priceMode",
-        label: "Prix de revente",
+        label: t("ui.sellPriceMode"),
         wide: true,
         options: [
-          ["fixed", "Prix fixe"],
-          ["futbin", "% du prix FUTBIN de la carte achetée"],
+          ["fixed", t("ui.sellPriceFixed")],
+          ["futbin", t("ui.sellPriceFutbin")],
         ],
-        hint: "Chaque filtre peut avoir son propre réglage (onglet Cible).",
+        hint: t("ui.sellPriceModeHint"),
       }),
-      priceField({ bind: "s:sell.defaultPrice", label: "Prix de revente par défaut", wide: true, showIf: "s:sell.priceMode=fixed" }),
+      priceField({ bind: "s:sell.defaultPrice", label: t("ui.sellDefaultPrice"), wide: true, showIf: "s:sell.priceMode=fixed" }),
       rangeField({
         bind: "s:sell.futbinPercent",
-        label: "% du prix FUTBIN",
+        label: t("ui.sellFutbinPercent"),
         unit: null,
         placeholder: "99-100",
         wide: true,
         showIf: "s:sell.priceMode=futbin",
-        hint: "Valeur tirée au hasard dans la plage. Le prix FUTBIN de la version achetée est relu juste après l'achat ; sans prix FUTBIN, la carte va dans la liste des transferts sans être listée.",
+        hint: t("ui.sellFutbinPercentHint"),
       })
     )
   )}
-  <div class="mb-note">La mise en vente passe par le service EA (la carte est d'abord déplacée dans la liste des transferts). Les limites de prix EA sont respectées automatiquement.</div>
+  <div class="mb-note">${t("ui.sellNote")}</div>
 `;
 
 // ------------------------------------------------------------------ Timing
@@ -109,58 +124,58 @@ const presetButtons = () =>
       const preset = TIMING_PRESETS[key];
       const active = getSettings().timing.preset === key;
       return `<button type="button" class="mb-preset${active ? " is-active" : ""}" data-preset="${key}">
-        <b>${preset.label}</b><small>${preset.hint}</small>
+        <b>${t(preset.labelKey)}</b><small>${t(preset.hintKey)}</small>
       </button>`;
     })
     .join("");
 
 export const timingPageHtml = () => `
-  ${section("Profil", `<div class="mb-presets" data-presets>${presetButtons()}</div>`)}
+  ${section(t("ui.profileSection"), `<div class="mb-presets" data-presets>${presetButtons()}</div>`)}
   ${section(
-    "Rythme des recherches",
+    t("ui.searchPaceSection"),
     grid(
-      rangeField({ bind: "s:timing.wait", label: "Temps entre deux recherches", unit: "S", placeholder: "5-9", key: true, wide: true, hint: "En secondes (décimales acceptées, ex. 4.5-7). Mesuré d'une recherche à la suivante." }),
-      numberField({ bind: "s:timing.maxPerMinute", label: "Recherches max / minute", placeholder: "illimité", hint: "Garde-fou anti-blocage." }),
-      rangeField({ bind: "s:timing.afterBuy", label: "Délai après un achat", unit: "S", optional: true, placeholder: "2-4S" })
+      rangeField({ bind: "s:timing.wait", label: t("ui.timingWait"), unit: "S", placeholder: "5-9", key: true, wide: true, hint: t("ui.timingWaitHint") }),
+      numberField({ bind: "s:timing.maxPerMinute", label: t("ui.timingMaxPerMinute"), placeholder: t("ui.unlimited"), hint: t("ui.timingMaxPerMinuteHint") }),
+      rangeField({ bind: "s:timing.afterBuy", label: t("ui.timingAfterBuy"), unit: "S", optional: true, placeholder: "2-4S" })
     )
   )}
   ${section(
-    "Pauses & arrêt",
+    t("ui.pausesSection"),
     grid(
-      rangeField({ bind: "s:timing.pauseEvery", label: "Pause toutes les", unit: null, optional: true, placeholder: "15-25", hint: "recherches (vide = jamais)" }),
-      rangeField({ bind: "s:timing.pauseFor", label: "Durée de la pause", unit: "S", optional: true, placeholder: "40-80S" }),
-      rangeField({ bind: "s:timing.stopAfter", label: "Arrêt automatique après", unit: "H", optional: true, placeholder: "2-3H", hint: "vide = jamais", wide: true })
+      rangeField({ bind: "s:timing.pauseEvery", label: t("ui.timingPauseEvery"), unit: null, optional: true, placeholder: "15-25", hint: t("ui.timingPauseEveryHint") }),
+      rangeField({ bind: "s:timing.pauseFor", label: t("ui.timingPauseFor"), unit: "S", optional: true, placeholder: "40-80S" }),
+      rangeField({ bind: "s:timing.stopAfter", label: t("ui.timingStopAfter"), unit: "H", optional: true, placeholder: "2-3H", hint: t("ui.timingStopAfterHint"), wide: true })
     )
   )}
   ${section(
-    "Fraîcheur des résultats",
+    t("ui.freshnessSection"),
     grid(
       selectField({
         bind: "s:timing.cacheBuster",
-        label: "Anti-cache EA",
+        label: t("ui.cacheBuster"),
         wide: true,
         options: [
-          ["auto", "Automatique (conseillé, ne rate aucune annonce)"],
-          ["minBuy", "Achat min variable"],
-          ["minBid", "Enchère min variable"],
-          ["off", "Désactivé"],
+          ["auto", t("ui.cacheBusterAuto")],
+          ["minBuy", t("ui.cacheBusterMinBuy")],
+          ["minBid", t("ui.cacheBusterMinBid")],
+          ["off", t("ui.cacheBusterOff")],
         ],
-        hint: "Chaque recherche est différente pour qu'EA renvoie des résultats frais et non une page en cache.",
+        hint: t("ui.cacheBusterHint"),
       }),
-      numberField({ bind: "s:timing.maxPages", label: "Pages parcourues", min: 1, max: 5, hint: "1 suffit avec un prix max serré." }),
-      priceField({ bind: "s:timing.cacheBusterMax", label: "Plafond anti-cache", hint: "Modes achat/enchère min." }),
-      toggleField({ bind: "s:timing.keepAlive", label: "Garder l'onglet actif en arrière-plan", wide: true, hint: "Signal audio inaudible pour que Chrome ne ralentisse pas le bot (icône haut-parleur sur l'onglet)." })
+      numberField({ bind: "s:timing.maxPages", label: t("ui.timingMaxPages"), min: 1, max: 5, hint: t("ui.timingMaxPagesHint") }),
+      priceField({ bind: "s:timing.cacheBusterMax", label: t("ui.cacheBusterMax"), hint: t("ui.cacheBusterMaxHint") }),
+      toggleField({ bind: "s:timing.keepAlive", label: t("ui.keepAlive"), wide: true, hint: t("ui.keepAliveHint") })
     )
   )}
   ${section(
-    "Erreurs EA",
+    t("ui.eaErrorsSection"),
     grid(
-      rangeField({ bind: "s:errors.cooldown", label: "Pause si EA limite (429/512/521)", unit: "M", placeholder: "4-8M", wide: true }),
-      numberField({ bind: "s:errors.maxCooldowns", label: "Arrêt après N limitations", min: 0, max: 20 }),
-      numberField({ bind: "s:errors.maxConsecutiveFailures", label: "Arrêt après N échecs", min: 1, max: 20 }),
-      textField({ bind: "s:errors.stopCodes", label: "Codes d'arrêt personnalisés", placeholder: "ex. 470, 473", wide: true })
+      rangeField({ bind: "s:errors.cooldown", label: t("ui.errorsCooldown"), unit: "M", placeholder: "4-8M", wide: true }),
+      numberField({ bind: "s:errors.maxCooldowns", label: t("ui.errorsMaxCooldowns"), min: 0, max: 20 }),
+      numberField({ bind: "s:errors.maxConsecutiveFailures", label: t("ui.errorsMaxFailures"), min: 1, max: 20 }),
+      textField({ bind: "s:errors.stopCodes", label: t("ui.errorsStopCodes"), placeholder: t("ui.errorsStopCodesPlaceholder"), wide: true })
     ) +
-      `<div class="mb-note is-warn" style="margin-top:8px">Captcha (458), session expirée (401) et marché verrouillé (494) arrêtent toujours le bot immédiatement.</div>`
+      `<div class="mb-note is-warn" style="margin-top:8px">${t("ui.errorsNote")}</div>`
   )}
 `;
 
@@ -169,89 +184,119 @@ export const timingPageHtml = () => `
 const transferStatsHtml = () => {
   const transfer = getState().transfer;
   if (!transfer) {
-    return `<p class="mb-empty">Pas encore chargée : clique sur « Actualiser ».</p>`;
+    return `<p class="mb-empty">${t("ui.transferNotLoaded")}</p>`;
   }
   const cell = (label, value) => `<div>${label}<b>${value}</b></div>`;
   return `<div class="mb-stats-list">
-    ${cell("En vente", transfer.active)}
-    ${cell("Vendues", transfer.sold)}
-    ${cell("Invendues", transfer.unsold)}
-    ${cell("Disponibles", transfer.available)}
-    ${cell("Occupation", `${transfer.total}${transfer.capacity ? ` / ${transfer.capacity}` : ""}`)}
-    ${cell("Valeur vendue", formatCoins(transfer.soldValue))}
+    ${cell(t("ui.transferActive"), transfer.active)}
+    ${cell(t("ui.transferSold"), transfer.sold)}
+    ${cell(t("ui.transferUnsold"), transfer.unsold)}
+    ${cell(t("ui.transferAvailable"), transfer.available)}
+    ${cell(t("ui.transferOccupancy"), `${transfer.total}${transfer.capacity ? ` / ${transfer.capacity}` : ""}`)}
+    ${cell(t("ui.transferSoldValue"), formatCoins(transfer.soldValue))}
   </div>`;
 };
 
 export const transferPageHtml = () => `
-  ${section("Liste des transferts", `<div data-transfer-stats>${transferStatsHtml()}</div>
+  ${section(t("ui.transferListSection"), `<div data-transfer-stats>${transferStatsHtml()}</div>
     <div class="mb-row" style="margin-top:8px">
-      <button type="button" class="mb-btn mb-btn-ghost mb-btn-sm" data-transfer-action="refresh">Actualiser</button>
-      <button type="button" class="mb-btn mb-btn-ghost mb-btn-sm" data-transfer-action="relist">Relister les invendus (même prix)</button>
-      <button type="button" class="mb-btn mb-btn-ghost mb-btn-sm" data-transfer-action="clear">Vider les vendus</button>
+      <button type="button" class="mb-btn mb-btn-ghost mb-btn-sm" data-transfer-action="refresh">${t("ui.refresh")}</button>
+      <button type="button" class="mb-btn mb-btn-ghost mb-btn-sm" data-transfer-action="relist">${t("ui.relistUnsold")}</button>
+      <button type="button" class="mb-btn mb-btn-ghost mb-btn-sm" data-transfer-action="clear">${t("ui.clearSold")}</button>
     </div>`)}
   ${section(
-    "Mise en vente au prix FUTBIN",
-    `<p class="mb-hint">Liste les cartes disponibles et invendues de ta liste des transferts au prix FUTBIN du moment (% réglé dans l'onglet Vente, durée de l'onglet Vente).</p>
+    t("ui.futbinListingSection"),
+    `<p class="mb-hint">${t("ui.futbinListingHint")}</p>
      <div class="mb-row" style="margin-top:8px">
-       <button type="button" class="mb-btn mb-btn-primary mb-btn-sm" data-transfer-action="futbin">Lister au prix FUTBIN</button>
-       <button type="button" class="mb-btn mb-btn-danger mb-btn-sm" data-transfer-action="futbin-stop" hidden>Arrêter</button>
+       <button type="button" class="mb-btn mb-btn-primary mb-btn-sm" data-transfer-action="futbin">${t("ui.listAtFutbin")}</button>
+       <button type="button" class="mb-btn mb-btn-danger mb-btn-sm" data-transfer-action="futbin-stop" hidden>${t("ui.stopVerb")}</button>
      </div>
      <div data-transfer-futbin></div>`
   )}
   ${section(
-    "Automatique pendant le bot",
+    t("ui.autoDuringBotSection"),
     grid(
-      toggleField({ bind: "s:transfer.relistExpired", label: "Relister les invendus", wide: true, hint: "Attention : concerne TOUTES les cartes expirées de la liste." }),
+      toggleField({ bind: "s:transfer.relistExpired", label: t("ui.relistExpired"), wide: true, hint: t("ui.relistExpiredHint") }),
       selectField({
         bind: "s:transfer.relistMode",
-        label: "Prix du relist",
+        label: t("ui.relistMode"),
         wide: true,
         showIf: "s:transfer.relistExpired=true",
         options: [
-          ["same", "Au même prix"],
-          ["futbin", "Au prix FUTBIN du moment (% de l'onglet Vente)"],
+          ["same", t("ui.relistSame")],
+          ["futbin", t("ui.relistFutbin")],
+          ["market", t("ui.relistMarket")],
         ],
-        hint: "Au prix FUTBIN : 5 cartes par passage ; sans prix FUTBIN après 3 min, relist au même prix.",
+        hint: t("ui.relistModeHint"),
       }),
-      numberField({ bind: "s:transfer.clearSoldAt", label: "Vider les vendus dès", placeholder: "jamais", hint: "cartes vendues (0 = jamais)" }),
-      numberField({ bind: "s:transfer.checkEvery", label: "Vérifier toutes les", min: 1, max: 100, hint: "recherches" }),
-      toggleField({ bind: "s:transfer.stopWhenFull", label: "Arrêter si la liste est pleine", wide: true })
+      numberField({ bind: "s:transfer.clearSoldAt", label: t("ui.clearSoldAt"), placeholder: t("ui.never"), hint: t("ui.clearSoldAtHint") }),
+      numberField({ bind: "s:transfer.checkEvery", label: t("ui.checkEvery"), min: 1, max: 100, hint: t("ui.checkEveryHint") }),
+      toggleField({ bind: "s:transfer.stopWhenFull", label: t("ui.stopWhenFull"), wide: true })
     )
   )}
 `;
 
 // ------------------------------------------------------------------ Alertes
 
+// Option « Automatique » : suit la langue du compte FC (nom de la langue détectée, sinon son code).
+const autoLanguageLabel = () => {
+  const code = gameLanguage();
+  const known = LANGUAGES.find(([id]) => id === code);
+  return t("ui.languageAuto", { lang: known ? known[1] : code ? code.toUpperCase() : "?" });
+};
+
+// Langue du compte FC connue après la construction du panneau : met à jour l'option « Automatique ».
+export const refreshLanguageField = (body) => {
+  setText(qs(body, 'select[data-bind="s:ui.language"] option[value="auto"]'), autoLanguageLabel());
+};
+
 export const alertsPageHtml = () => `
   ${section(
-    "Son & bureau",
+    t("ui.interfaceSection"),
     grid(
-      toggleField({ bind: "s:notify.sound", label: "Sons", hint: "Achat, captcha, arrêt." }),
-      numberField({ bind: "s:notify.volume", label: "Volume (0 à 1)", float: true, min: 0, max: 1 }),
-      toggleField({ bind: "s:notify.desktop", label: "Notifications du navigateur", wide: true, hint: "Pratique quand l'onglet est en arrière-plan." })
+      selectField({
+        bind: "s:ui.language",
+        label: t("ui.languageLabel"),
+        wide: true,
+        options: [["auto", autoLanguageLabel()], ...LANGUAGES],
+        hint: t("ui.languageHint"),
+      }),
+      toggleField({ bind: "s:ui.dockPanel", label: t("ui.dockPanel"), wide: true, hint: t("ui.dockPanelHint") })
+    )
+  )}
+  ${section(
+    t("ui.soundSection"),
+    grid(
+      toggleField({ bind: "s:notify.sound", label: t("ui.sounds"), hint: t("ui.soundsHint") }),
+      numberField({ bind: "s:notify.volume", label: t("ui.volume"), float: true, min: 0, max: 1 }),
+      toggleField({ bind: "s:notify.desktop", label: t("ui.desktopNotify"), wide: true, hint: t("ui.desktopNotifyHint") })
     ) +
       `<div class="mb-row" style="margin-top:8px">
-        <button type="button" class="mb-btn mb-btn-ghost mb-btn-sm" data-sound="buy">Tester : achat</button>
-        <button type="button" class="mb-btn mb-btn-ghost mb-btn-sm" data-sound="alert">Tester : alerte</button>
+        <button type="button" class="mb-btn mb-btn-ghost mb-btn-sm" data-sound="buy">${t("ui.testBuySound")}</button>
+        <button type="button" class="mb-btn mb-btn-ghost mb-btn-sm" data-sound="alert">${t("ui.testAlertSound")}</button>
       </div>`
   )}
   ${section(
     "Discord & Telegram",
     grid(
-      textField({ bind: "s:notify.discordWebhook", label: "Webhook Discord", placeholder: "https://discord.com/api/webhooks/…", secret: true, wide: true }),
-      textField({ bind: "s:notify.telegramToken", label: "Token du bot Telegram", placeholder: "123456:ABC…", secret: true, wide: true }),
-      textField({ bind: "s:notify.telegramChatId", label: "Chat ID Telegram", placeholder: "ex. 123456789", wide: true })
+      textField({ bind: "s:notify.discordWebhook", label: t("ui.discordWebhook"), placeholder: "https://discord.com/api/webhooks/…", secret: true, wide: true }),
+      textField({ bind: "s:notify.telegramToken", label: t("ui.telegramToken"), placeholder: "123456:ABC…", secret: true, wide: true }),
+      textField({ bind: "s:notify.telegramChatId", label: t("ui.telegramChatId"), placeholder: t("ui.telegramChatIdPlaceholder"), wide: true })
     ) +
-      `<div class="mb-row" style="margin-top:8px"><button type="button" class="mb-btn mb-btn-primary mb-btn-sm" data-notify-test>Envoyer un message de test</button><span class="mb-hint" data-notify-result></span></div>`
+      `<div class="mb-row" style="margin-top:8px"><button type="button" class="mb-btn mb-btn-primary mb-btn-sm" data-notify-test>${t("ui.sendTest")}</button><span class="mb-hint" data-notify-result></span></div>`
   )}
   ${section(
-    "Quand prévenir ?",
+    t("ui.whenSection"),
     grid(
-      toggleField({ bind: "s:notify.onBuy", label: "Achat réussi" }),
-      toggleField({ bind: "s:notify.onFail", label: "Achat raté" }),
-      toggleField({ bind: "s:notify.onList", label: "Mise en vente" }),
-      toggleField({ bind: "s:notify.onStop", label: "Arrêt du bot" })
-    ) + `<p class="mb-hint">Captcha et blocages EA sont toujours signalés.</p>`
+      toggleField({ bind: "s:notify.onBuy", label: t("ui.onBuy") }),
+      toggleField({ bind: "s:notify.onFail", label: t("ui.onFail") }),
+      toggleField({ bind: "s:notify.onList", label: t("ui.onList") }),
+      toggleField({ bind: "s:notify.onListFail", label: t("ui.onListFail") }),
+      toggleField({ bind: "s:notify.onSold", label: t("ui.onSold") }),
+      toggleField({ bind: "s:notify.onStart", label: t("ui.onStart") }),
+      toggleField({ bind: "s:notify.onStop", label: t("ui.onStop") }),
+      numberField({ bind: "s:notify.summaryMinutes", label: t("ui.summaryMinutes"), min: 0, max: 720, placeholder: t("ui.disabledPlaceholder"), hint: t("ui.summaryMinutesHint") })
+    ) + `<p class="mb-hint">${t("ui.alwaysReported")}</p>`
   )}
 `;
 
@@ -281,10 +326,10 @@ export const bindSettingsPages = (body, refreshAll) => {
     }
     if (target.closest("[data-notify-test]")) {
       const result = qs(body, "[data-notify-result]");
-      result.textContent = "envoi…";
-      const sent = await notifyEvent("test", "🔔 Test MagicBuyer : les notifications fonctionnent.");
+      result.textContent = t("ui.sending");
+      const sent = await notifyEvent("test", t("ui.notifyTestMessage"));
       const ok = sent.filter(Boolean).length;
-      result.textContent = ok ? `${ok} canal(aux) OK` : "aucun canal configuré ou envoi refusé";
+      result.textContent = ok ? t("ui.channelsOk", { n: ok }) : t("ui.noChannel");
       return;
     }
     const action = target.closest("[data-transfer-action]");
@@ -294,7 +339,7 @@ export const bindSettingsPages = (body, refreshAll) => {
         return;
       }
       if (isRunning() && action.dataset.transferAction !== "refresh") {
-        log.warn("Le bot gère déjà la liste des transferts : arrête-le pour agir manuellement.");
+        log.warn(t("ui.botHandlesTransfers"));
         return;
       }
       if (action.dataset.transferAction === "futbin") {
@@ -323,7 +368,7 @@ export const bindSettingsPages = (body, refreshAll) => {
       const permission = await requestDesktopPermission();
       if (permission !== "granted") {
         setSetting("notify.desktop", false);
-        log.warn("Notifications du navigateur refusées par Chrome.");
+        log.warn(t("ui.desktopRefused"));
         refreshAll();
       }
     }, 0);
@@ -335,25 +380,32 @@ const runFutbinListing = async (body) => {
   const out = qs(body, "[data-transfer-futbin]");
   const startBtn = qs(body, '[data-transfer-action="futbin"]');
   const stopBtn = qs(body, '[data-transfer-action="futbin-stop"]');
-  const task = beginTask("mise en vente FUTBIN");
+  const task = beginTask(t("ui.taskFutbinListing"));
   if (!task) {
     const other = currentTask();
-    out.innerHTML = `<div class="mb-note is-warn" style="margin-top:8px">Une autre tâche est en cours (${other ? other.label : "?"}).</div>`;
+    out.innerHTML = `<div class="mb-note is-warn" style="margin-top:8px">${t("ui.otherTaskRunning", { label: other ? other.label : "?" })}</div>`;
     return;
   }
   startBtn.disabled = true;
   stopBtn.hidden = false;
   const paint = (report) => {
-    out.innerHTML = `<div class="mb-note" style="margin-top:8px">${report.listed} listée(s) sur ${report.total}${
-      report.skipped ? ` · ${report.skipped} ignorée(s)` : ""
-    }${report.current ? ` · en cours : ${report.current}` : ""}</div>`;
+    const parts = [
+      t("ui.listingProgress", { listed: report.listed, total: report.total }),
+      report.skipped ? t("ui.listingSkipped", { n: report.skipped }) : "",
+      report.current ? t("ui.listingCurrent", { name: report.current }) : "",
+    ];
+    out.innerHTML = `<div class="mb-note" style="margin-top:8px">${parts.filter(Boolean).join(" · ")}</div>`;
   };
   try {
     const report = await listTransferAtFutbin({ token: task.token, onProgress: paint });
     paint(report);
-    const text = `${report.listed} carte(s) mise(s) en vente au prix FUTBIN sur ${report.total}` +
-      (report.noPrice ? ` · ${report.noPrice} sans prix FUTBIN` : "") +
-      (report.stopped ? ` · arrêt : ${report.stopped}` : "");
+    const text = [
+      t("ui.listingDone", { listed: report.listed, total: report.total }),
+      report.noPrice ? t("ui.listingNoPrice", { n: report.noPrice }) : "",
+      report.stopped ? t("ui.listingStopped", { reason: report.stopped }) : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
     out.innerHTML = `<div class="mb-note${report.stopped ? " is-warn" : ""}" style="margin-top:8px">${text}.</div>`;
     log.info(`${text}.`);
   } finally {
@@ -379,27 +431,26 @@ const runTransferAction = async (action) => {
       const summary = market.summarizeTransferList(result.items);
       updateState({ transfer: Object.assign({ capacity: market.pileCapacity("TRANSFER") }, summary) });
     } else {
-      log.warn(`Liste des transferts indisponible : ${result.error.label}.`);
+      log.warn(t("ui.transferUnavailable", { error: result.error.label }));
     }
     return;
   }
   if (action === "relist") {
     const result = await market.relistExpired();
     if (result.ok) {
-      log.success("Invendus relistés.");
+      log.success(t("ui.relisted"));
     } else {
-      log.warn(`Relist impossible : ${result.error.label}.`);
+      log.warn(t("ui.relistFailed", { error: result.error.label }));
     }
   }
   if (action === "clear") {
     const result = await market.clearSold();
     if (result.ok) {
-      log.success("Cartes vendues retirées de la liste.");
+      log.success(t("ui.soldCleared"));
       await market.refreshCoins();
     } else {
-      log.warn(`Impossible de vider les vendus : ${result.error.label}.`);
+      log.warn(t("ui.clearSoldFailed", { error: result.error.label }));
     }
   }
   await runTransferAction("refresh");
 };
-

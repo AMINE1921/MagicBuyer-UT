@@ -7,7 +7,11 @@ import {
   absoluteUrl,
   htmlToDocument,
   looksBlocked,
+  parseGalleryIndex,
+  parseGalleryPool,
+  parseGallerySet,
   parsePlayerDocument,
+  parsePlayerListText,
   parseSearchJson,
   parseSquadText,
 } from "./futbinParse";
@@ -30,14 +34,33 @@ const IFRAME_GAP = 5000;
 let lastRequestAt = 0;
 let lastIframeAt = 0;
 // Requête directe refusée (Cloudflare) : on ne la retente pas pendant 3 min (sauf demande explicite).
-let directPausedUntil = 0;
-export const futbinDirectPausedUntil = () => (directPausedUntil > Date.now() ? directPausedUntil : 0);
+// La pause dépend du type de page : FUTBIN peut refuser la recherche et les listes (403) tout en
+// servant encore les pages joueur, qui ne doivent pas attendre pour autant.
+const pausedUntil = { page: 0, list: 0 };
+
+// "page" = page d'un joueur ; "list" = tout le reste (recherche, listes, galerie, équipes).
+export const futbinRequestKind = (url) => {
+  let path = "";
+  try {
+    path = new URL(String(url)).pathname;
+  } catch (e) {
+    path = String(url || "");
+  }
+  return /\/\d{2}\/player\//.test(path) ? "page" : "list";
+};
+
+// Sans type (ou "all") : la pause la plus longue (affichage de l'état FUTBIN).
+export const futbinDirectPausedUntil = (kind) => {
+  const until = kind && kind !== "all" ? pausedUntil[kind] || 0 : Math.max(pausedUntil.page, pausedUntil.list);
+  return until > Date.now() ? until : 0;
+};
 
 // Utilisé par les tests.
 export const resetFutbinClientForTests = () => {
   lastRequestAt = 0;
   lastIframeAt = 0;
-  directPausedUntil = 0;
+  pausedUntil.page = 0;
+  pausedUntil.list = 0;
   iframeFailures = 0;
   iframePausedUntil = 0;
 };
@@ -57,14 +80,19 @@ const pace = async () => {
   }
 };
 
-const directGet = (url, accept) =>
+const directRequest = (url, accept, method = "GET", body = null) =>
   new Promise((resolve) => {
     requestCount += 1;
+    const headers = { Accept: accept };
+    if (body != null) {
+      headers["Content-Type"] = "application/json";
+    }
     sendExternalRequest({
-      method: "GET",
+      method,
       url,
+      data: body != null ? body : undefined,
       identifier: `futbin_${Date.now()}`,
-      headers: { Accept: accept },
+      headers,
       timeout: 15000,
       onload: (res) =>
         resolve({
@@ -74,7 +102,7 @@ const directGet = (url, accept) =>
     });
   });
 
-const viaIframe = async (url, timeoutMs) => {
+const viaIframe = async (url, timeoutMs, graceMs) => {
   if (!getSettings().prices.iframeFallback || Date.now() < iframePausedUntil) {
     return null;
   }
@@ -84,7 +112,7 @@ const viaIframe = async (url, timeoutMs) => {
     await waitFor(wait);
   }
   requestCount += 1;
-  const payload = await fetchViaIframe(url, timeoutMs);
+  const payload = await fetchViaIframe(url, timeoutMs, graceMs);
   if (payload && payload.text && !looksBlocked(payload.text)) {
     iframeFailures = 0;
     return payload;
@@ -97,34 +125,58 @@ const viaIframe = async (url, timeoutMs) => {
   return null;
 };
 
-// Lecture d'une page FUTBIN. Réponses : { ok, text, via } ou { ok: false, notFound | blocked | deferred, status }.
-// options : json, allowIframe (secours par page cachée), forceDirect (retenter la requête directe tout de suite).
-export const fetchFutbinText = async (url, { json = false, allowIframe = true, forceDirect = false } = {}) => {
-  if (forceDirect || !futbinDirectPausedUntil()) {
+// Requête POST en secours : une page FUTBIN (galerie) est ouverte dans l'iframe cachée et le script
+// qui y tourne envoie la requête depuis futbin.com (voir futbinBridge, chemins autorisés seulement).
+const postFrameUrl = (url, body) => {
+  let path = "";
+  try {
+    path = new URL(url).pathname;
+  } catch (e) {
+    return "";
+  }
+  return `${FUTBIN_ORIGIN}/${futbinYear()}/gallery#mb-post=${encodeURIComponent(JSON.stringify({ path, body }))}`;
+};
+
+// Lecture d'une page FUTBIN. Réponses : { ok, text, via } ou { ok: false, notFound | blocked | deferred, status, kind }.
+// options : json, allowIframe (secours par page cachée), forceDirect (retenter la requête directe tout de suite),
+// method / body (requête POST JSON, ex. pages suivantes d'une collection de la galerie).
+export const fetchFutbinText = async (url, { json = false, allowIframe = true, forceDirect = false, method = "GET", body = null } = {}) => {
+  let kind = futbinRequestKind(url);
+  if (forceDirect || !futbinDirectPausedUntil(kind)) {
     await pace();
-    const res = await directGet(url, json ? JSON_ACCEPT : HTML_ACCEPT);
+    const res = await directRequest(url, json ? JSON_ACCEPT : HTML_ACCEPT, method, body);
     if (res.status === 200 && !looksBlocked(res.text)) {
-      directPausedUntil = 0;
+      pausedUntil[kind] = 0;
       return { ok: true, text: res.text, via: "direct" };
     }
     if (res.status === 404) {
       return { ok: false, notFound: true, status: 404 };
     }
-    const blocked = res.status === 403 || res.status === 429 || res.status === 503 || looksBlocked(res.text);
+    const challenge = looksBlocked(res.text);
+    const blocked = res.status === 403 || res.status === 429 || res.status === 503 || challenge;
     if (!blocked) {
       // Erreur réseau ou serveur : simple échec, réessayé plus tard.
       return { ok: false, status: res.status };
     }
-    directPausedUntil = Date.now() + DIRECT_PAUSE;
+    // Page de vérification Cloudflare : tout FUTBIN attend. Simple refus (403/429) : ce type de page seulement.
+    const until = Date.now() + DIRECT_PAUSE;
+    if (challenge) {
+      pausedUntil.page = until;
+      pausedUntil.list = until;
+      kind = "all";
+    } else {
+      pausedUntil[kind] = until;
+    }
   }
   if (!allowIframe) {
-    return { ok: false, blocked: true, deferred: true, status: 403 };
+    return { ok: false, blocked: true, deferred: true, status: 403, kind };
   }
-  const payload = await viaIframe(url, 15000);
+  const frameUrl = method === "POST" ? postFrameUrl(url, body) : url;
+  const payload = frameUrl ? await viaIframe(frameUrl, 20000, method === "POST" ? 10000 : undefined) : null;
   if (payload) {
     return { ok: true, text: payload.text, via: "iframe" };
   }
-  return { ok: false, blocked: true, status: 403 };
+  return { ok: false, blocked: true, status: 403, kind };
 };
 
 export const searchFutbin = async (query, options = {}) => {
@@ -141,7 +193,7 @@ export const searchFutbin = async (query, options = {}) => {
 const normalizeName = (value) =>
   String(value || "")
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
@@ -205,10 +257,12 @@ export const fetchFutbinPrice = async (link, platform, options = {}) => {
   const doc = htmlToDocument(res.text);
   const parsed = parsePlayerDocument(doc, platform);
   if (parsed.blocked) {
-    return { ok: false, blocked: true };
+    // Page de vérification servie à la place de la page joueur : tout FUTBIN est concerné.
+    return { ok: false, blocked: true, kind: "all" };
   }
   if (!parsed.price) {
-    return { ok: false, noPrice: true };
+    // Carte sans prix (hors marché) : son score d'objet reste utile.
+    return { ok: false, noPrice: true, itemScore: parsed.itemScore, itemScoreExact: parsed.itemScoreExact, pageEaId: parsed.pageEaId };
   }
   return Object.assign({ ok: true, via: res.via }, parsed);
 };
@@ -243,4 +297,108 @@ export const fetchFutbinSquad = async (url) => {
     return { ok: false, empty: true };
   }
   return { ok: true, squad: parsed, via };
+};
+
+export const isFutbinListUrl = (url) => /^https:\/\/(?:www\.)?futbin\.com\/\d{2}\/players(?:[/?#]|$)/i.test(String(url || "").trim());
+
+// Même liste FUTBIN, page N (paramètre "page").
+export const withPage = (url, page) => {
+  try {
+    const parsed = new URL(String(url).trim());
+    if (page > 1) {
+      parsed.searchParams.set("page", String(page));
+    } else {
+      parsed.searchParams.delete("page");
+    }
+    return parsed.toString();
+  } catch (e) {
+    return String(url || "");
+  }
+};
+
+// Une page d'une liste de joueurs FUTBIN : cartes (id EA, note, prix console / PC, lien FUTBIN).
+export const fetchFutbinList = async (url, page = 1, options = {}) => {
+  if (!isFutbinListUrl(url)) {
+    return { ok: false, invalid: true };
+  }
+  const res = await fetchFutbinText(withPage(url, page), options);
+  if (!res.ok) {
+    return res;
+  }
+  const parsed = parsePlayerListText(res.text);
+  if (parsed.blocked) {
+    return { ok: false, blocked: true };
+  }
+  return { ok: true, cards: parsed.cards, lastPage: parsed.lastPage, source: parsed.source, via: res.via };
+};
+
+// ------------------------------------------------------------------ galerie FC 27
+
+export const galleryUrl = () => `${FUTBIN_ORIGIN}/${futbinYear()}/gallery`;
+
+export const isFutbinGalleryUrl = (url) => /^https:\/\/(?:www\.)?futbin\.com\/\d{2}\/gallery(?:[/?#]|$)/i.test(String(url || "").trim());
+
+const playerUrl = (futbinId) => `${FUTBIN_ORIGIN}/${futbinYear()}/player/${futbinId}/player`;
+
+const withUrls = (items) =>
+  items.map((item) => Object.assign(item, { url: item.url || (item.futbinId ? playerUrl(item.futbinId) : "") }));
+
+// Collections de la galerie (toutes, ou celles d'une catégorie) avec leurs paliers de récompenses.
+export const fetchGalleryIndex = async (url) => {
+  const target = url ? absoluteUrl(url) : galleryUrl();
+  if (!isFutbinGalleryUrl(target)) {
+    return { ok: false, invalid: true };
+  }
+  const res = await fetchFutbinText(target, { forceDirect: true });
+  if (!res.ok) {
+    return res;
+  }
+  const parsed = parseGalleryIndex(res.text);
+  if (!parsed.sets.length) {
+    return parsed.blocked ? { ok: false, blocked: true } : { ok: false, empty: true };
+  }
+  return { ok: true, categories: parsed.categories, sets: parsed.sets, via: res.via };
+};
+
+// Une collection : paliers, bonus, limite de joueurs et première page des joueurs éligibles.
+export const fetchGallerySet = async (url) => {
+  const target = absoluteUrl(url);
+  if (!isFutbinGalleryUrl(target)) {
+    return { ok: false, invalid: true };
+  }
+  const res = await fetchFutbinText(target, { forceDirect: true });
+  if (!res.ok) {
+    return res;
+  }
+  const set = parseGallerySet(res.text);
+  if (!set) {
+    return looksBlocked(res.text) ? { ok: false, blocked: true } : { ok: false, empty: true };
+  }
+  withUrls(set.items);
+  return { ok: true, set, via: res.via };
+};
+
+// Page N des joueurs éligibles d'une collection, triés (ItemScoreDesc, PriceAscPs, ValueDescPc…).
+export const fetchGalleryPool = async (searchUrl, { sort = "ItemScoreDesc", page = 1, searchTerm = "", minItemScore = 0 } = {}) => {
+  const target = absoluteUrl(searchUrl);
+  if (!/\/gallery\/set-player-search\/\d+$/.test(target)) {
+    return { ok: false, invalid: true };
+  }
+  const request = { sort, page: Math.max(1, Number(page) || 1) };
+  if (searchTerm) {
+    request.searchTerm = String(searchTerm);
+  }
+  if (Number(minItemScore) > 0) {
+    request.minItemScore = Number(minItemScore);
+  }
+  const res = await fetchFutbinText(target, { json: true, method: "POST", body: JSON.stringify(request), forceDirect: true });
+  if (!res.ok) {
+    return res;
+  }
+  const pool = parseGalleryPool(res.text);
+  if (!pool) {
+    return looksBlocked(res.text) ? { ok: false, blocked: true } : { ok: false, status: 0 };
+  }
+  withUrls(pool.items);
+  return { ok: true, items: pool.items, totalItems: pool.totalItems, via: res.via };
 };

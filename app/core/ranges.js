@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+
 // Lecture des champs "plage" : "6-10", "7.5", "20-40S", "1-2H", "5M", "1D".
 
 const UNIT_SECONDS = { S: 1, M: 60, H: 3600, D: 86400, J: 86400 };
@@ -73,16 +75,16 @@ export const describeRange = (value, defaultUnit = "S") => {
   }
   const fmt = (seconds) => {
     if (seconds >= 3600) {
-      return `${+(seconds / 3600).toFixed(2)} h`;
+      return t("misc.unitHours", { n: +(seconds / 3600).toFixed(2) });
     }
     if (seconds >= 60) {
-      return `${+(seconds / 60).toFixed(1)} min`;
+      return t("misc.unitMinutes", { n: +(seconds / 60).toFixed(1) });
     }
-    return `${+seconds.toFixed(1)} s`;
+    return t("misc.unitSeconds", { n: +seconds.toFixed(1) });
   };
   return range.min === range.max
     ? fmt(range.min)
-    : `${fmt(range.min)} à ${fmt(range.max)}`;
+    : t("misc.rangeBetween", { min: fmt(range.min), max: fmt(range.max) });
 };
 
 export const formatDuration = (ms) => {

@@ -1,13 +1,17 @@
 import { isFinalizing, isPaused, isRunning, isStopping, startBot, stopBot } from "../core/engine";
 import { formatDuration } from "../core/ranges";
-import { STATUS_LABEL, getState, onStateChange } from "../core/state";
-import { qs, setText } from "./dom";
+import { onSettingsChange } from "../core/settings";
+import { getState, onStateChange, statusLabel } from "../core/state";
+import { t } from "../i18n";
+import { escapeHtml, qs, setText } from "./dom";
 import { togglePanel } from "./panel";
 
 // Pastille flottante : état du bot + ouverture du panneau + Démarrer/Stop rapide.
+// Tous les textes sont repeints à chaque passage : un changement de langue est pris en compte.
 
 let hud = null;
 let timer = null;
+let unsubscribeSettings = null;
 
 const paint = () => {
   if (!hud) {
@@ -20,19 +24,23 @@ const paint = () => {
   }
   const running = isRunning();
   const stats = state.stats;
-  setText(qs(hud, "[data-hud-label]"), running ? STATUS_LABEL[status] || "En chasse" : "MagicBuyer");
+  const toggle = qs(hud, "[data-hud-toggle]");
+  if (toggle && toggle.getAttribute("aria-label") !== t("ui.hudOpen")) {
+    toggle.setAttribute("aria-label", t("ui.hudOpen"));
+  }
+  setText(qs(hud, "[data-hud-label]"), running ? statusLabel(status) || t("ui.statusRunning") : "MagicBuyer");
   const elapsed = state.startedAt && running ? formatDuration(Date.now() - state.startedAt) : "";
   setText(
     qs(hud, "[data-hud-detail]"),
     running || stats.searches
       ? `🔎 ${stats.searches} · ✅ ${stats.won}${elapsed ? ` · ${elapsed}` : ""}`
-      : "Ouvrir le sniper"
+      : t("ui.hudOpenSniper")
   );
   const action = qs(hud, "[data-hud-action]");
   action.disabled = isStopping() && !isFinalizing();
   setText(action, running ? "■" : "▶");
-  action.setAttribute("aria-label", running ? "Arrêter le bot" : "Démarrer le bot");
-  action.title = running ? "Arrêter" : "Démarrer";
+  action.setAttribute("aria-label", running ? t("ui.hudStopBot") : t("ui.hudStartBot"));
+  action.title = running ? t("ui.stopVerb") : t("ui.start");
 };
 
 export const ensureHud = () => {
@@ -48,17 +56,17 @@ export const ensureHud = () => {
     hud.id = "mb-hud";
     hud.dataset.status = "idle";
     hud.innerHTML = `
-      <button type="button" class="mb-hud-main" data-hud-toggle aria-label="Ouvrir MagicBuyer">
+      <button type="button" class="mb-hud-main" data-hud-toggle aria-label="${escapeHtml(t("ui.hudOpen"))}">
         <span class="mb-hud-logo">MB</span>
         <span class="mb-dot"></span>
-        <span class="mb-hud-text"><b data-hud-label>MagicBuyer</b><small data-hud-detail>Ouvrir le sniper</small></span>
+        <span class="mb-hud-text"><b data-hud-label>MagicBuyer</b><small data-hud-detail>${t("ui.hudOpenSniper")}</small></span>
       </button>
-      <button type="button" class="mb-hud-action" data-hud-action aria-label="Démarrer le bot">▶</button>`;
+      <button type="button" class="mb-hud-action" data-hud-action aria-label="${escapeHtml(t("ui.hudStartBot"))}">▶</button>`;
     document.body.appendChild(hud);
     hud.addEventListener("click", (event) => {
       if (event.target.closest("[data-hud-action]")) {
         if (isRunning()) {
-          stopBot("arrêt manuel", { manual: true });
+          stopBot(t("ui.manualStop"), { manual: true });
         } else if (!startBot()) {
           togglePanel();
         }
@@ -72,6 +80,14 @@ export const ensureHud = () => {
     onStateChange(paint);
     if (!timer) {
       timer = setInterval(paint, 1000);
+    }
+    // Langue choisie dans les réglages : repeinte tout de suite (sinon au prochain passage du minuteur).
+    if (!unsubscribeSettings) {
+      unsubscribeSettings = onSettingsChange((settings, path) => {
+        if (path === "ui.language" || path === "*") {
+          paint();
+        }
+      });
     }
   }
   paint();

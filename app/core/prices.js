@@ -1,3 +1,4 @@
+import { locale } from "../i18n";
 import { pageGlobal } from "./page";
 
 // Paliers de prix de FC 27 (UTCurrencyInputControl.PRICE_TIERS), triés du plus haut au plus bas.
@@ -119,6 +120,21 @@ export const afterTax = (price) => {
   return n ? Math.floor(n * (1 - EA_TAX)) : 0;
 };
 
+// Plus petit prix EA valide qui rapporte au moins `minProfit` après la taxe EA (5 %) sur une carte
+// payée `buyPrice` (0 si le prix d'achat est inconnu). Ex. achat 24 000 → 25 500 (24 225 net).
+export const breakEvenPrice = (buyPrice, minProfit = 0) => {
+  const buy = toInt(buyPrice);
+  if (!buy) {
+    return 0;
+  }
+  const wanted = buy + Math.max(0, toInt(minProfit));
+  let price = ceilPrice(Math.ceil(wanted / (1 - EA_TAX)));
+  for (let guard = 0; guard < 5 && price && afterTax(price) < wanted; guard += 1) {
+    price = priceAbove(price);
+  }
+  return price;
+};
+
 export const profitFor = (buyPrice, sellPrice) => {
   const buy = toInt(buyPrice);
   const sell = toInt(sellPrice);
@@ -128,10 +144,15 @@ export const profitFor = (buyPrice, sellPrice) => {
   return afterTax(sell) - buy;
 };
 
+// Montant affiché avec les séparateurs de la langue de l'interface (12 500 / 12,500).
 export const formatCoins = (value) => {
   const n = Math.round(Number(value) || 0);
-  const sign = n < 0 ? "-" : "";
-  return sign + String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  try {
+    return n.toLocaleString(locale(), { maximumFractionDigits: 0 });
+  } catch (e) {
+    const sign = n < 0 ? "-" : "";
+    return sign + String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  }
 };
 
 // Enchère de départ recommandée pour une mise en vente au BIN donné.

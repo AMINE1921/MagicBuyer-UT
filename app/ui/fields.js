@@ -2,6 +2,7 @@ import { getActiveFilter, getRotation, setRotation, updateFilter } from "../core
 import { floorPrice, parseCoinsInput, stepPrice } from "../core/prices";
 import { describeRange, isValidRange, parseRange } from "../core/ranges";
 import { getSetting, setSetting } from "../core/settings";
+import { t } from "../i18n";
 import { escapeHtml, qsa } from "./dom";
 
 // Liaison des champs : data-bind="s:chemin.du.reglage" (réglages), "f:champ" (filtre actif),
@@ -66,9 +67,9 @@ export const priceField = (opts) => `
   <div ${fieldAttrs(opts)}>
     <div class="mb-label"><span>${opts.label}</span><em data-extra="${opts.bind}"></em></div>
     <div class="mb-price">
-      <button type="button" class="mb-step" data-step="-1" data-for="${opts.bind}" aria-label="Diminuer d'un palier">−</button>
-      <input class="mb-input" data-bind="${opts.bind}" data-kind="price" inputmode="text" autocomplete="off" placeholder="${escapeHtml(opts.placeholder || "ex. 45000 ou 45k")}" aria-label="${escapeHtml(opts.label)}" />
-      <button type="button" class="mb-step" data-step="1" data-for="${opts.bind}" aria-label="Augmenter d'un palier">+</button>
+      <button type="button" class="mb-step" data-step="-1" data-for="${opts.bind}" aria-label="${escapeHtml(t("target.fieldStepDown"))}">−</button>
+      <input class="mb-input" data-bind="${opts.bind}" data-kind="price" inputmode="text" autocomplete="off" placeholder="${escapeHtml(opts.placeholder || t("target.fieldPricePlaceholder"))}" aria-label="${escapeHtml(opts.label)}" />
+      <button type="button" class="mb-step" data-step="1" data-for="${opts.bind}" aria-label="${escapeHtml(t("target.fieldStepUp"))}">+</button>
     </div>
     ${hintHtml(opts.hint)}
   </div>`;
@@ -176,7 +177,7 @@ const paintExtra = (root, el, value) => {
       extra.textContent = range
         ? range.min === range.max
           ? `${+range.min.toFixed(2)}`
-          : `${+range.min.toFixed(2)} à ${+range.max.toFixed(2)}`
+          : t("target.fieldRange", { min: +range.min.toFixed(2), max: +range.max.toFixed(2) })
         : "";
     }
   }
@@ -218,7 +219,7 @@ export const refreshFields = (root) => {
       if (el.getAttribute("aria-checked") !== String(on)) {
         el.setAttribute("aria-checked", String(on));
       }
-      el.textContent = on ? "Activé" : "Désactivé";
+      el.textContent = on ? t("target.fieldOn") : t("target.fieldOff");
       return;
     }
     if (el === document.activeElement) {

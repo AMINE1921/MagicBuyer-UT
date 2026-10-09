@@ -1,3 +1,5 @@
+import { locale } from "../i18n";
+
 export const escapeHtml = (value) =>
   String(value == null ? "" : value)
     .replace(/&/g, "&amp;")
@@ -44,7 +46,7 @@ export const debounce = (fn, wait) => {
 };
 
 export const formatTime = (timestamp) =>
-  new Date(timestamp).toLocaleTimeString("fr-FR", {
+  new Date(timestamp).toLocaleTimeString(locale(), {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",

@@ -57,11 +57,41 @@ const pageReady = () => {
   return document.readyState === "complete";
 };
 
+// Requête POST demandée par le web app (#mb-post={ path, body }) : envoyée depuis futbin.com, avec
+// les cookies du site. Seule la recherche de joueurs d'une collection de la galerie est autorisée.
+const POST_PATHS = [/^\/\d{2}\/gallery\/set-player-search\/\d+$/];
+
+const postRequest = () => {
+  const match = String(location.hash || "").match(/^#mb-post=(.+)$/);
+  if (!match) {
+    return false;
+  }
+  let request = null;
+  try {
+    request = JSON.parse(decodeURIComponent(match[1]));
+  } catch (e) {
+    request = null;
+  }
+  const path = request && typeof request.path === "string" ? request.path : "";
+  if (!POST_PATHS.some((re) => re.test(path)) || typeof request.body !== "string") {
+    postToParent({ kind: "json", url: location.href, text: "" });
+    return true;
+  }
+  fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: request.body, credentials: "same-origin" })
+    .then((res) => res.text())
+    .then((text) => postToParent({ kind: "json", url: path, text }))
+    .catch(() => postToParent({ kind: "json", url: path, text: "" }));
+  return true;
+};
+
 export const bootFutbinBridge = () => {
   if (!isFutbinPage() || !isFramed() || !framedByEa() || window.__mbFutbinBridge) {
     return;
   }
   window.__mbFutbinBridge = true;
+  if (postRequest()) {
+    return;
+  }
   let sent = false;
   const send = () => {
     if (sent) {
@@ -107,7 +137,8 @@ export const bootFutbinBridge = () => {
 let chain = Promise.resolve();
 
 // Charge une URL FUTBIN dans une iframe cachée et renvoie { kind, url, text } ou null.
-export const fetchViaIframe = (url, timeoutMs = 15000) => {
+// graceMs : attente après le chargement de la page avant d'abandonner (réponse envoyée plus tard).
+export const fetchViaIframe = (url, timeoutMs = 15000, graceMs = 4000) => {
   chain = chain
     .catch(() => {})
     .then(
@@ -149,7 +180,7 @@ export const fetchViaIframe = (url, timeoutMs = 15000) => {
           const timer = setTimeout(() => finish(null), timeoutMs);
           window.addEventListener("message", onMessage);
           // Page refusée dans une iframe (X-Frame-Options) : le chargement se termine sans message.
-          iframe.addEventListener("load", () => setTimeout(() => finish(null), 4000));
+          iframe.addEventListener("load", () => setTimeout(() => finish(null), graceMs || 4000));
           iframe.src = url;
           document.body.appendChild(iframe);
         })

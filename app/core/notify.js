@@ -1,3 +1,4 @@
+import { locale } from "../i18n";
 import { sendExternalRequest } from "../services/externalRequest";
 import { playTone } from "./audio";
 import { eaToast } from "./page";
@@ -52,7 +53,7 @@ const post = (url, body) =>
     });
   });
 
-const COLORS = { buy: 3066993, fail: 15158332, list: 3447003, stop: 15105570, alert: 15158332, test: 10181046 };
+const COLORS = { buy: 3066993, fail: 15158332, list: 3447003, sold: 15844367, start: 3447003, listfail: 15158332, summary: 10181046, stop: 15105570, alert: 15158332, test: 10181046 };
 
 const sendDiscord = (message, kind) => {
   const url = String(getSettings().notify.discordWebhook || "").trim();
@@ -65,7 +66,7 @@ const sendDiscord = (message, kind) => {
       {
         description: message,
         color: COLORS[kind] || COLORS.test,
-        footer: { text: `MagicBuyer · ${new Date().toLocaleTimeString("fr-FR")}` },
+        footer: { text: `MagicBuyer · ${new Date().toLocaleTimeString(locale())}` },
       },
     ],
   });
@@ -85,13 +86,25 @@ const sendTelegram = (message) => {
   });
 };
 
-const EVENT_TOGGLES = { buy: "onBuy", fail: "onFail", list: "onList", stop: "onStop", alert: "onStop" };
+const EVENT_TOGGLES = {
+  buy: "onBuy",
+  fail: "onFail",
+  list: "onList",
+  sold: "onSold",
+  start: "onStart",
+  listfail: "onListFail",
+  stop: "onStop",
+  alert: "onStop",
+};
 
-// kind : buy | fail | list | stop | alert | test
+// Envoyés dès qu'ils sont émis (le bilan périodique n'est émis que si sa fréquence est réglée).
+const ALWAYS = new Set(["test", "alert", "summary"]);
+
+// kind : buy | fail | list | sold | start | listfail | summary | stop | alert | test
 export const notifyEvent = (kind, message, { toast = false, negative = false } = {}) => {
   const settings = getSettings().notify;
   const toggle = EVENT_TOGGLES[kind];
-  const wanted = kind === "test" || kind === "alert" || !!(toggle && settings[toggle]);
+  const wanted = ALWAYS.has(kind) || !!(toggle && settings[toggle]);
   if (kind === "buy" || kind === "alert" || kind === "stop" || (kind !== "test" && wanted)) {
     sound(kind);
   }

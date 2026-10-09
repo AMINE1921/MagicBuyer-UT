@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+
 // État d'exécution partagé entre le moteur et l'interface (non persistant).
 
 export const STATUS = {
@@ -11,16 +13,25 @@ export const STATUS = {
   STOPPED: "stopped",
 };
 
-export const STATUS_LABEL = {
-  idle: "À l'arrêt",
-  starting: "Démarrage…",
-  running: "En chasse",
-  paused: "En pause",
-  "auto-pause": "Pause auto",
-  cooldown: "Pause de sécurité",
-  stopping: "Arrêt en cours…",
-  stopped: "Arrêté",
+const STATUS_KEYS = {
+  idle: "ui.statusIdle",
+  starting: "ui.statusStarting",
+  running: "ui.statusRunning",
+  paused: "ui.statusPaused",
+  "auto-pause": "ui.statusAutoPause",
+  cooldown: "ui.statusCooldown",
+  stopping: "ui.statusStopping",
+  stopped: "ui.statusStopped",
 };
+
+// Libellé affiché d'un état, dans la langue de l'interface ("" si l'état est inconnu).
+export const statusLabel = (status) => (STATUS_KEYS[status] ? t(STATUS_KEYS[status]) : "");
+
+// Compatibilité : STATUS_LABEL[status] lit le libellé dans la langue du moment.
+export const STATUS_LABEL = Object.keys(STATUS_KEYS).reduce(
+  (labels, status) => Object.defineProperty(labels, status, { enumerable: true, get: () => statusLabel(status) }),
+  {}
+);
 
 const emptyStats = () => ({
   searches: 0,
@@ -37,6 +48,10 @@ const emptyStats = () => ({
   estProfit: 0,
   soldCount: 0,
   soldValue: 0,
+  salesSeen: 0,
+  salesValue: 0,
+  salesKnown: 0,
+  realProfit: 0,
   errors: 0,
   lastLatency: 0,
   avgLatency: 0,
@@ -93,7 +108,23 @@ export const setStat = (key, value) => {
   notify();
 };
 
+// Bilan par filtre de la session en cours (remis à zéro au démarrage du bot, comme les KPI).
+const filterStats = new Map();
+
+export const bumpFilterStat = (filterId, key, amount = 1) => {
+  if (!filterId) {
+    return;
+  }
+  const entry = filterStats.get(filterId) || { searches: 0, won: 0, missed: 0, spent: 0, estProfit: 0 };
+  entry[key] = (entry[key] || 0) + amount;
+  filterStats.set(filterId, entry);
+  notify();
+};
+
+export const filterStatsFor = (filterId) => filterStats.get(filterId) || null;
+
 export const resetStats = () => {
+  filterStats.clear();
   state.stats = emptyStats();
   searchTimes.length = 0;
   notify();

@@ -1,13 +1,14 @@
 {
   "name": "MagicBuyer-UT",
-  "version": "5.1.1",
+  "version": "5.4.3",
   "description": "",
   "main": "index.js",
   "scripts": {
     "build:dev": "NODE_OPTIONS=--openssl-legacy-provider webpack --mode development",
     "build:prod": "NODE_OPTIONS=--openssl-legacy-provider webpack --mode production",
     "serve": "NODE_OPTIONS=--openssl-legacy-provider webpack serve --mode development",
-    "build:mobile": "npx babel  dist/fut-auto-buyer.user.js --out-file dist/fut-auto-buyer.mobile.js --presets babel-preset-es2015"
+    "build:mobile": "npx babel  dist/fut-auto-buyer.user.js --out-file dist/fut-auto-buyer.mobile.js --presets babel-preset-es2015",
+    "test": "NODE_OPTIONS=--openssl-legacy-provider webpack --config test/webpack.config.js && node test/build/engine.test.bundle.js && node test/build/futbin.test.bundle.js && node test/build/tools.test.bundle.js && NODE_OPTIONS=--openssl-legacy-provider webpack --config test/webpack.solver.config.js && node test/build-solver/solver.test.bundle.js"
   },
   "repository": {
     "type": "git",

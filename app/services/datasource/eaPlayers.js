@@ -9,6 +9,7 @@ import { getPage } from "../../core/page";
 
 let catalogPromise = null;
 let catalog = null;
+let catalogById = null;
 
 const norm = (value) =>
   String(value || "")
@@ -137,6 +138,7 @@ export const loadEaPlayersCatalog = async (force) => {
       } catch (e) {}
     }
     catalog = rows;
+    catalogById = null;
     return catalog;
   })();
   try {
@@ -146,6 +148,20 @@ export const loadEaPlayersCatalog = async (force) => {
       catalogPromise = null;
     }
   }
+};
+
+export const eaCatalogLoaded = () => !!(catalog && catalog.length);
+
+// Joueur du catalogue EA déjà chargé, par identifiant de base (aucune requête) : null sinon.
+export const eaPlayerLoaded = (baseId) => {
+  const id = Number(baseId) || 0;
+  if (!id || !catalog || !catalog.length) {
+    return null;
+  }
+  if (!catalogById) {
+    catalogById = new Map(catalog.map((row) => [row.eaId, row]));
+  }
+  return catalogById.get(id) || null;
 };
 
 export const searchEaPlayersByTerm = async (term, limit = 12) => {

@@ -1,0 +1,8 @@
+{
+  "name": "magicbuyer-ut-tests",
+  "private": true,
+  "description": "Dépendances des tests (lecture HTML hors navigateur)",
+  "devDependencies": {
+    "linkedom": "^0.18.12"
+  }
+}

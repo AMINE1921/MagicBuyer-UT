@@ -1,27 +1,36 @@
+import { addFilter, getFilters } from "../../core/filters";
+import { holoFilterFor, holoRarities, holoScanRunning, lastHoloScan, scanHoloPremiums, stopHoloScan } from "../../core/holoScan";
 import { log } from "../../core/logger";
-import { formatCoins } from "../../core/prices";
+import { formatCoins, toInt } from "../../core/prices";
+import { getSettings } from "../../core/settings";
+import { locale, t } from "../../i18n";
 import { fetchFutbinPrice, futbinRequestCount, resolveFutbinLink } from "../../prices/futbinClient";
-import { clearFutbinCache, getFutbinStatus, pricePlatform } from "../../prices/priceService";
+import { searchFutbinApi } from "../../prices/futbinApi";
+import { clearFutbinCache, getFutbinStatus, priceSource, pricePlatform } from "../../prices/priceService";
 import { escapeHtml, qs, setHtml } from "../dom";
-import { grid, numberField, rangeField, section, selectField, toggleField } from "../fields";
+import { grid, numberField, priceField, rangeField, section, selectField, toggleField } from "../fields";
 
-// Onglet FUTBIN : accès (test), fréquence de rafraîchissement, étiquettes sur les cartes, DCE.
+// Onglet FUTBIN : accès (test), scanner de prime holo, fréquence de rafraîchissement, étiquettes sur
+// les cartes, DCE.
 
 const TEST_CARD = { definitionId: 231747, name: "Mbappé", rating: 0 };
 
-const STATE_TEXT = {
-  idle: "prêt",
-  fetching: "lecture en cours",
-  queued: "file d'attente",
-  blocked: "ralenti (FUTBIN bloque)",
+// État du service de prix → clé du libellé.
+const STATE_KEYS = {
+  idle: "ui.futbinStateIdle",
+  fetching: "ui.futbinStateFetching",
+  queued: "ui.futbinStateQueued",
+  blocked: "ui.futbinStateBlocked",
 };
+
+const stateText = (state) => (STATE_KEYS[state] ? t(STATE_KEYS[state]) : state);
 
 const ago = (timestamp) => {
   if (!timestamp) {
-    return "jamais";
+    return t("ui.never");
   }
   const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
-  return seconds < 60 ? `il y a ${seconds} s` : `il y a ${Math.round(seconds / 60)} min`;
+  return seconds < 60 ? t("ui.secondsAgo", { n: seconds }) : t("ui.minutesAgo", { n: Math.round(seconds / 60) });
 };
 
 const statusHtml = () => {
@@ -29,127 +38,368 @@ const statusHtml = () => {
   const cell = (label, value) => `<div>${label}<b>${value}</b></div>`;
   const blocked = status.blockedUntil > Date.now();
   return `<div class="mb-stats-list">
-      ${cell("État", escapeHtml(STATE_TEXT[status.state] || status.state))}
-      ${cell("Plateforme", pricePlatform() === "pc" ? "PC" : "Console")}
-      ${cell("Cartes suivies", status.tracked)}
-      ${cell("En attente", status.queue)}
-      ${cell("Dernier prix lu", ago(status.lastSuccessAt))}
-      ${cell("Requêtes FUTBIN", futbinRequestCount())}
+      ${cell(t("ui.futbinStatus"), escapeHtml(stateText(status.state)))}
+      ${cell(t("ui.futbinPlatform"), pricePlatform() === "pc" ? "PC" : t("ui.platformConsole"))}
+      ${cell(t("ui.futbinTracked"), status.tracked)}
+      ${cell(t("ui.futbinQueue"), status.queue)}
+      ${cell(t("ui.futbinLastPrice"), ago(status.lastSuccessAt))}
+      ${cell(t("ui.futbinRequests"), futbinRequestCount())}
+      ${cell(t("ui.futbinApiRequests"), status.apiRequests)}
     </div>${
+      status.source === "api" && status.apiPausedUntil
+        ? `<div class="mb-note is-warn" style="margin-top:8px">${t("ui.futbinApiPaused", { n: Math.ceil((status.apiPausedUntil - Date.now()) / 1000) })}</div>`
+        : ""
+    }${
       status.lastError || blocked
-        ? `<div class="mb-note is-warn" style="margin-top:8px">${escapeHtml(status.lastError || "FUTBIN ralenti")}${
-            blocked ? ` · reprise dans ${Math.ceil((status.blockedUntil - Date.now()) / 1000)} s` : ""
+        ? `<div class="mb-note is-warn" style="margin-top:8px">${escapeHtml(status.lastError || t("ui.futbinSlowed"))}${
+            blocked ? ` · ${t("ui.resumeIn", { n: Math.ceil((status.blockedUntil - Date.now()) / 1000) })}` : ""
           }</div>`
         : ""
     }`;
 };
 
-export const futbinPageHtml = () => `
-  ${section(
-    "Accès FUTBIN",
-    `<div data-futbin-status>${statusHtml()}</div>
-     <div class="mb-row" style="margin-top:8px">
-       <button type="button" class="mb-btn mb-btn-primary mb-btn-sm" data-futbin-action="test">Tester FUTBIN</button>
-       <button type="button" class="mb-btn mb-btn-ghost mb-btn-sm" data-futbin-action="open">Ouvrir futbin.com</button>
-       <button type="button" class="mb-btn mb-btn-ghost mb-btn-sm" data-futbin-action="clear">Vider le cache des prix</button>
-     </div>
-     <div data-futbin-test></div>
-     <p class="mb-hint">Les prix sont lus sur les pages FUTBIN (comme dans ton navigateur). Une seule requête à la fois, espacées, et ralentissement automatique si FUTBIN bloque.</p>`
-  )}
-  ${section(
-    "Rafraîchissement des prix",
+// ------------------------------------------------------------- prime holo
+
+const HOLO_ROWS_SHOWN = 40;
+
+// Bénéfice exigé à l'achat (onglet Achat), 1 000 par défaut : la règle des flips holo et Ombre.
+const holoMinProfit = () => toInt(getSettings().buy.minProfit) || 1000;
+
+const signedCoins = (value) => `${value > 0 ? "+" : value < 0 ? "−" : ""}${formatCoins(Math.abs(value))}`;
+
+const holoResultsHtml = () => {
+  const scan = lastHoloScan();
+  if (!scan) {
+    return "";
+  }
+  if (!scan.rows.length) {
+    return `<p class="mb-hint">${t(scan.pairs ? "ui.holoNoneInRange" : "ui.holoNone")}</p>`;
+  }
+  const rows = scan.rows.slice(0, HOLO_ROWS_SHOWN);
+  return `<div class="mb-preview mb-holo-table"><table>
+      <thead><tr><th><input type="checkbox" data-holo-all aria-label="${escapeHtml(t("ui.holoPickAll"))}" /></th>
+        <th>${t("ui.holoColPlayer")}</th><th class="is-num">${t("ui.holoColNormal")}</th><th class="is-num">${t("ui.holoColHolo")}</th>
+        <th class="is-num" title="${escapeHtml(t("ui.holoColEdgeHint"))}">${t("ui.holoColEdge")}</th>
+        <th class="is-num" title="${escapeHtml(t("ui.holoColCapHint", { min: formatCoins(scan.minProfit) }))}">${t("ui.holoColCap")}</th></tr></thead>
+      <tbody>${rows
+        .map((row) => {
+          const good = row.edge >= scan.minProfit;
+          const name = row.url
+            ? `<a href="${escapeHtml(row.url)}" target="_blank" rel="noopener" title="${escapeHtml(row.fullName)}">${escapeHtml(row.name)}</a>`
+            : escapeHtml(row.name);
+          return `<tr class="${good ? "" : "is-muted"}">
+            <td><input type="checkbox" data-holo-pick="${row.eaId}"${good ? " checked" : ""} aria-label="${escapeHtml(row.name)}" /></td>
+            <td>${name} ${row.rating}</td>
+            <td class="is-num">${formatCoins(row.normalPrice)}</td>
+            <td class="is-num">${formatCoins(row.holoPrice)}</td>
+            <td class="is-num">${signedCoins(row.edge)}</td>
+            <td class="is-num">${formatCoins(row.cap)}</td></tr>`;
+        })
+        .join("")}</tbody></table></div>
+    <div class="mb-row" style="margin-top:8px">
+      <button type="button" class="mb-btn mb-btn-primary mb-btn-sm" data-futbin-action="holo-filters">${t("ui.holoCreateFilters")}</button>
+    </div>`;
+};
+
+const holoSectionHtml = () =>
+  section(
+    t("ui.holoSection"),
     grid(
       selectField({
+        bind: "s:holo.rarity",
+        label: t("ui.holoPromo"),
+        wide: true,
+        numeric: true,
+        options: holoRarities().map((entry) => [String(entry.id), entry.name]),
+      }),
+      priceField({ bind: "s:holo.minPrice", label: t("ui.holoMinPrice") }),
+      priceField({ bind: "s:holo.maxPrice", label: t("ui.holoMaxPrice") })
+    ) +
+      `<div class="mb-row" style="margin-top:8px">
+        <button type="button" class="mb-btn mb-btn-primary mb-btn-sm" data-futbin-action="holo-scan"${holoScanRunning() ? " disabled" : ""}>${t("ui.holoScan")}</button>
+        <button type="button" class="mb-btn mb-btn-danger mb-btn-sm" data-futbin-action="holo-stop"${holoScanRunning() ? "" : " hidden"}>${t("ui.holoStop")}</button>
+      </div>
+      <div data-holo-status></div>
+      <div data-holo-results>${holoResultsHtml()}</div>
+      <p class="mb-hint">${t("ui.holoHint")}</p>`
+  );
+
+export const futbinPageHtml = () => `
+  ${section(
+    t("ui.futbinAccessSection"),
+    `<div data-futbin-status>${statusHtml()}</div>
+     <div class="mb-row" style="margin-top:8px">
+       <button type="button" class="mb-btn mb-btn-primary mb-btn-sm" data-futbin-action="test">${t("ui.futbinTest")}</button>
+       <button type="button" class="mb-btn mb-btn-ghost mb-btn-sm" data-futbin-action="open">${t("ui.futbinOpen")}</button>
+       <button type="button" class="mb-btn mb-btn-ghost mb-btn-sm" data-futbin-action="clear">${t("ui.futbinClearCache")}</button>
+     </div>
+     <div data-futbin-test></div>
+     <p class="mb-hint">${t("ui.futbinAccessHint")}</p>`
+  )}
+  ${holoSectionHtml()}
+  ${section(
+    t("ui.priceRefreshSection"),
+    grid(
+      selectField({
+        bind: "s:prices.source",
+        label: t("ui.priceSource"),
+        wide: true,
+        hint: t("ui.priceSourceHint"),
+        options: [
+          ["api", t("ui.priceSourceApi")],
+          ["pages", t("ui.priceSourcePages")],
+        ],
+      }),
+      selectField({
         bind: "s:prices.platform",
-        label: "Plateforme des prix",
+        label: t("ui.pricePlatform"),
         wide: true,
         options: [
-          ["auto", "Automatique (plateforme de ton compte)"],
-          ["console", "Console (PlayStation / Xbox)"],
+          ["auto", t("ui.pricePlatformAuto")],
+          ["console", t("ui.pricePlatformConsole")],
           ["pc", "PC"],
         ],
       }),
-      numberField({ bind: "s:prices.hotInterval", label: "Cibles du bot et achats DCE", min: 60, max: 120, hint: "relus toutes les N secondes (60 à 120)" }),
-      numberField({ bind: "s:prices.visibleInterval", label: "Cartes affichées", min: 60, max: 600, hint: "secondes ; moins souvent si le prix ne bouge pas" }),
-      numberField({ bind: "s:prices.jumpGuard", label: "Saut de prix suspect", min: 5, max: 90, hint: "% d'écart : revérifié avant que le bot l'utilise" }),
-      numberField({ bind: "s:prices.minGap", label: "Écart entre requêtes", float: true, min: 0.8, max: 10, hint: "secondes entre deux pages FUTBIN" }),
+      numberField({ bind: "s:prices.hotInterval", label: t("ui.hotInterval"), min: 60, max: 120, hint: t("ui.hotIntervalHint") }),
+      numberField({ bind: "s:prices.visibleInterval", label: t("ui.visibleInterval"), min: 60, max: 600, hint: t("ui.visibleIntervalHint") }),
+      numberField({ bind: "s:prices.jumpGuard", label: t("ui.jumpGuard"), min: 5, max: 90, hint: t("ui.jumpGuardHint") }),
+      numberField({ bind: "s:prices.minGap", label: t("ui.minGap"), float: true, min: 0.8, max: 10, hint: t("ui.minGapHint") }),
+      numberField({ bind: "s:prices.listInterval", label: t("ui.listInterval"), min: 120, max: 900, hint: t("ui.listIntervalHint") }),
+      numberField({ bind: "s:prices.listPages", label: t("ui.listPages"), min: 1, max: 10, hint: t("ui.listPagesHint") }),
       toggleField({
         bind: "s:prices.iframeFallback",
-        label: "Secours : page FUTBIN cachée",
+        label: t("ui.iframeFallback"),
         wide: true,
-        hint: "Si FUTBIN refuse la requête directe (Cloudflare), la page est chargée dans une iframe invisible.",
+        hint: t("ui.iframeFallbackHint"),
       })
     )
   )}
   ${section(
-    "Affichage",
+    t("ui.displaySection"),
     grid(
       toggleField({
         bind: "s:ui.cardPrices",
-        label: "Prix FUTBIN sur les cartes",
+        label: t("ui.cardPrices"),
         wide: true,
-        hint: "Petite étiquette en haut de chaque carte joueur (club, marché, transferts, équipes, DCE). Clic : page FUTBIN de la carte.",
+        hint: t("ui.cardPricesHint"),
       })
     )
   )}
   ${section(
-    "DCE : solutions FUTBIN",
+    t("ui.sbcSection"),
     grid(
-      numberField({ bind: "s:sbc.margin", label: "Marge sur le prix FUTBIN", min: 0, max: 50, hint: "% ajoutés au prix FUTBIN pour le prix max des manquants" }),
-      numberField({ bind: "s:sbc.triesPerPlayer", label: "Recherches par joueur", min: 1, max: 30 }),
-      rangeField({ bind: "s:sbc.wait", label: "Pause entre recherches", unit: "S", placeholder: "3-5", wide: true })
+      numberField({ bind: "s:sbc.margin", label: t("ui.sbcMargin"), min: 0, max: 50, hint: t("ui.sbcMarginHint") }),
+      numberField({ bind: "s:sbc.triesPerPlayer", label: t("ui.sbcTries"), min: 1, max: 30 }),
+      rangeField({ bind: "s:sbc.wait", label: t("ui.sbcWait"), unit: "S", placeholder: "3-5", wide: true })
     ) +
-      `<p class="mb-hint">Dans l'équipe d'un défi, clique sur « ⚡ Solution FUTBIN » (en haut de l'écran) et colle le lien de la solution. Le défi n'est jamais envoyé automatiquement.</p>`
+      `<p class="mb-hint">${t("ui.sbcHint")}</p>`
   )}
 `;
+
+// Promos du web app, relues quand l'onglet s'affiche : le panneau peut être construit avant le web app.
+const refreshHoloRarities = (body) => {
+  const select = qs(body, '[data-bind="s:holo.rarity"]');
+  const list = holoRarities();
+  if (!select || select.options.length >= list.length) {
+    return;
+  }
+  setHtml(select, list.map((entry) => `<option value="${entry.id}">${escapeHtml(entry.name)}</option>`).join(""));
+  select.value = String(getSettings().holo.rarity);
+};
 
 export const refreshFutbinStatus = (body) => {
   const el = qs(body, "[data-futbin-status]");
   if (el) {
     setHtml(el, statusHtml());
   }
+  refreshHoloRarities(body);
+};
+
+const seconds = (started) =>
+  // Durée du test avec la décimale de la langue de l'interface (2,4 / 2.4).
+  ((Date.now() - started) / 1000).toLocaleString(locale(), {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+    useGrouping: false,
+  });
+
+// Test de l'API de l'appli FUTBIN : true si elle a répondu avec le prix de la carte de test.
+const runApiTest = async (out, started) => {
+  const res = await searchFutbinApi(TEST_CARD.name);
+  const card = res.ok ? res.cards.find((entry) => entry.eaId === TEST_CARD.definitionId) : null;
+  const platform = pricePlatform();
+  const price = card ? card.prices[platform] : 0;
+  if (!price) {
+    const reason = res.blocked ? t("ui.futbinApiTestBlocked") : t("ui.futbinApiTestFailed", { status: res.status ? ` (${res.status})` : "" });
+    log.warn(t("ui.futbinTestLog", { message: reason }));
+    out.innerHTML = `<div class="mb-note is-warn" style="margin-top:8px">✗ ${escapeHtml(reason)}</div>`;
+    return false;
+  }
+  const via = t("ui.futbinViaApi");
+  const name = card.name || TEST_CARD.name;
+  out.innerHTML = `<div class="mb-note" style="margin-top:8px">✓ ${t("ui.futbinTestOk", {
+    via: escapeHtml(via),
+    name: escapeHtml(name),
+    price: `<b>${formatCoins(price)}</b>`,
+    platform: platform === "pc" ? "PC" : t("ui.platformConsoleLower"),
+    age: "",
+    seconds: seconds(started),
+  })}</div>`;
+  log.success(t("ui.futbinTestOkLog", { via, name, price: formatCoins(price) }));
+  return true;
 };
 
 const runTest = async (out) => {
   const started = Date.now();
-  out.innerHTML = `<div class="mb-note" style="margin-top:8px">Test en cours (recherche puis page joueur)…</div>`;
+  out.innerHTML = `<div class="mb-note" style="margin-top:8px">${t("ui.futbinTesting")}</div>`;
+  // Source API : l'API d'abord ; en cas d'échec, les pages FUTBIN (le secours du bot) sont testées.
+  if (priceSource() === "api" && (await runApiTest(out, started))) {
+    return;
+  }
+  const previous = out.innerHTML;
   // Test explicite : la requête directe est retentée même si FUTBIN l'a refusée il y a peu.
   const resolved = await resolveFutbinLink(TEST_CARD, { forceDirect: true });
   if (!resolved.ok) {
     const message = resolved.blocked
-      ? "FUTBIN demande une vérification (Cloudflare). Clique sur « Ouvrir futbin.com », passe la vérification si elle s'affiche, puis reteste."
+      ? t("ui.futbinTestBlocked")
       : resolved.notFound
-      ? "FUTBIN répond, mais la carte de test est introuvable : le format de la recherche FUTBIN a peut-être changé."
-      : `FUTBIN ne répond pas${resolved.status ? ` (${resolved.status})` : ""}.`;
+      ? t("ui.futbinTestNotFound")
+      : t("ui.futbinTestNoResponse", { status: resolved.status ? ` (${resolved.status})` : "" });
     out.innerHTML = `<div class="mb-note is-warn" style="margin-top:8px">✗ ${escapeHtml(message)}</div>`;
-    log.warn(`Test FUTBIN : ${message}`);
+    log.warn(t("ui.futbinTestLog", { message }));
     return;
   }
   const platform = pricePlatform();
   const price = await fetchFutbinPrice(resolved.link, platform, { forceDirect: true });
-  const seconds = ((Date.now() - started) / 1000).toFixed(1).replace(".", ",");
   if (!price.ok) {
     const message = price.blocked
-      ? "la page joueur est bloquée par Cloudflare"
+      ? t("ui.futbinPageBlocked")
       : price.noPrice
-      ? "la page joueur est lue mais le prix est introuvable (format FUTBIN changé ?)"
-      : `la page joueur ne répond pas${price.status ? ` (${price.status})` : ""}`;
-    out.innerHTML = `<div class="mb-note is-warn" style="margin-top:8px">✗ Recherche OK, mais ${escapeHtml(message)}.</div>`;
-    log.warn(`Test FUTBIN : ${message}.`);
+      ? t("ui.futbinPageNoPrice")
+      : t("ui.futbinPageNoResponse", { status: price.status ? ` (${price.status})` : "" });
+    out.innerHTML = `<div class="mb-note is-warn" style="margin-top:8px">✗ ${t("ui.futbinSearchOkBut", { message: escapeHtml(message) })}</div>`;
+    log.warn(t("ui.futbinTestLog", { message: `${message}.` }));
     return;
   }
-  const via = price.via === "iframe" ? "page cachée (secours)" : "requête directe";
-  const age = price.updatedAgoSec ? ` · mis à jour par FUTBIN il y a ${Math.round(price.updatedAgoSec / 60)} min` : "";
-  out.innerHTML = `<div class="mb-note" style="margin-top:8px">✓ FUTBIN accessible (${escapeHtml(via)}) : ${escapeHtml(
-    resolved.link.name || TEST_CARD.name
-  )} = <b>${formatCoins(price.price)}</b> (${platform === "pc" ? "PC" : "console"})${age} · ${seconds} s</div>`;
-  log.success(`Test FUTBIN réussi (${via}) : ${resolved.link.name || TEST_CARD.name} = ${formatCoins(price.price)}.`);
+  const via = price.via === "iframe" ? t("ui.futbinViaIframe") : t("ui.futbinViaDirect");
+  const age = price.updatedAgoSec ? ` · ${t("ui.futbinUpdatedAgo", { n: Math.round(price.updatedAgoSec / 60) })}` : "";
+  const name = resolved.link.name || TEST_CARD.name;
+  out.innerHTML = `<div class="mb-note" style="margin-top:8px">✓ ${t("ui.futbinTestOk", {
+    via: escapeHtml(via),
+    name: escapeHtml(name),
+    price: `<b>${formatCoins(price.price)}</b>`,
+    platform: platform === "pc" ? "PC" : t("ui.platformConsoleLower"),
+    age,
+    seconds: seconds(started),
+  })}</div>${previous && priceSource() === "api" ? previous : ""}`;
+  log.success(t("ui.futbinTestOkLog", { via, name, price: formatCoins(price.price) }));
+};
+
+const holoNote = (page, text, kind = "") => {
+  const el = qs(page, "[data-holo-status]");
+  if (el) {
+    setHtml(el, `<div class="mb-note${kind ? ` is-${kind}` : ""}" style="margin-top:8px">${escapeHtml(text)}</div>`);
+  }
+};
+
+const setHoloButtons = (page, busy) => {
+  const scan = qs(page, '[data-futbin-action="holo-scan"]');
+  const stop = qs(page, '[data-futbin-action="holo-stop"]');
+  if (scan) {
+    scan.disabled = busy;
+  }
+  if (stop) {
+    stop.hidden = !busy;
+  }
+};
+
+const runHoloScan = async (page) => {
+  const options = getSettings().holo;
+  setHoloButtons(page, true);
+  try {
+    const result = await scanHoloPremiums({
+      rarity: options.rarity,
+      min: options.minPrice,
+      max: options.maxPrice,
+      minProfit: holoMinProfit(),
+      onProgress: (progress) => holoNote(page, progress.step === "ea" ? t("ui.holoProgressEa", progress) : t("ui.holoProgressCard", progress)),
+    });
+    if (!result.ok) {
+      const message = result.busy ? t("ui.holoBusy") : t("ui.holoEaError", { error: (result.error && result.error.label) || "?" });
+      holoNote(page, message, "warn");
+      log.warn(message);
+      return;
+    }
+    setHtml(qs(page, "[data-holo-results]"), holoResultsHtml());
+    const good = result.rows.filter((row) => row.edge >= result.minProfit).length;
+    const parts = [t("ui.holoDone", { count: result.rows.length, good, min: formatCoins(result.minProfit) })];
+    if (result.outOfRange) {
+      parts.push(t("ui.holoOutOfRange", { n: result.outOfRange }));
+    }
+    if (result.missed.length) {
+      parts.push(t("ui.holoMissed", { n: result.missed.length }));
+    }
+    if (result.apiBlocked) {
+      parts.push(t("ui.holoApiBlocked"));
+    } else if (result.cancelled) {
+      parts.push(t("ui.holoCancelled"));
+    }
+    const text = parts.join(" · ");
+    holoNote(page, text, result.apiBlocked ? "warn" : "");
+    log.info(t("ui.holoLog", { text }));
+  } finally {
+    setHoloButtons(page, false);
+  }
+};
+
+// Filtres « prix marché EA » des holo cochées, désactivés ; une version déjà ciblée n'est pas recréée.
+const createHoloFilters = (page) => {
+  const scan = lastHoloScan();
+  const picked = new Set(Array.from(page.querySelectorAll("[data-holo-pick]:checked")).map((el) => Number(el.dataset.holoPick)));
+  const rows = scan ? scan.rows.filter((row) => picked.has(row.eaId)) : [];
+  if (!rows.length) {
+    holoNote(page, t("ui.holoNoneChecked"), "warn");
+    return;
+  }
+  const targeted = new Set(getFilters().map((filter) => filter.definitionId).filter(Boolean));
+  let created = 0;
+  rows.forEach((row) => {
+    if (targeted.has(row.eaId)) {
+      return;
+    }
+    addFilter(holoFilterFor(row, t("ui.holoFilterName", { name: row.name, rating: row.rating })), false);
+    targeted.add(row.eaId);
+    created += 1;
+  });
+  const text = t("ui.holoFiltersCreated", { n: created, skipped: rows.length - created });
+  holoNote(page, text);
+  log.success(text);
 };
 
 export const bindFutbinPage = (page) => {
+  page.addEventListener("change", (event) => {
+    const all = event.target.closest("[data-holo-all]");
+    if (all) {
+      page.querySelectorAll("[data-holo-pick]").forEach((box) => {
+        box.checked = all.checked;
+      });
+    }
+  });
   page.addEventListener("click", async (event) => {
     const action = event.target.closest("[data-futbin-action]");
     if (!action) {
+      return;
+    }
+    if (action.dataset.futbinAction === "holo-scan") {
+      await runHoloScan(page);
+      return;
+    }
+    if (action.dataset.futbinAction === "holo-stop") {
+      stopHoloScan();
+      return;
+    }
+    if (action.dataset.futbinAction === "holo-filters") {
+      createHoloFilters(page);
       return;
     }
     if (action.dataset.futbinAction === "open") {
@@ -157,9 +407,9 @@ export const bindFutbinPage = (page) => {
       return;
     }
     if (action.dataset.futbinAction === "clear") {
-      if (window.confirm("Vider le cache des prix et des liens FUTBIN ?")) {
+      if (window.confirm(t("ui.futbinClearConfirm"))) {
         clearFutbinCache();
-        log.info("Cache FUTBIN vidé.");
+        log.info(t("ui.futbinCacheCleared"));
         refreshFutbinStatus(page);
       }
       return;

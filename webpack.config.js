@@ -20,7 +20,9 @@ module.exports = {
     minimizer: [
       new TerserPlugin({
         extractComments: false,
-        terserOptions: { format: { comments: false } },
+        // ascii_only : tout caractère non ASCII écrit en \uXXXX (accents, symboles), le script ne
+        // dépend plus de l'encodage choisi par Tampermonkey ou le navigateur pour le lire.
+        terserOptions: { format: { comments: false, ascii_only: true } },
       }),
     ],
   },

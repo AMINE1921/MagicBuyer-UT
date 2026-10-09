@@ -1,9 +1,10 @@
 import { loadJson, saveJson } from "./storage";
 
+// Profils de timing. Libellés : clés de traduction (app/i18n/ui.js), lues au rendu par l'interface.
 export const TIMING_PRESETS = {
   prudent: {
-    label: "Prudent",
-    hint: "Rythme lent, pauses longues : le moins risqué pour le compte.",
+    labelKey: "ui.presetPrudent",
+    hintKey: "ui.presetPrudentHint",
     values: {
       wait: "8-14",
       maxPerMinute: 6,
@@ -13,8 +14,8 @@ export const TIMING_PRESETS = {
     },
   },
   normal: {
-    label: "Normal",
-    hint: "Bon compromis entre réactivité et discrétion.",
+    labelKey: "ui.presetNormal",
+    hintKey: "ui.presetNormalHint",
     values: {
       wait: "5-9",
       maxPerMinute: 10,
@@ -24,8 +25,8 @@ export const TIMING_PRESETS = {
     },
   },
   rapide: {
-    label: "Rapide",
-    hint: "Snipe très réactif, mais captchas et blocages EA plus fréquents.",
+    labelKey: "ui.presetRapide",
+    hintKey: "ui.presetRapideHint",
     values: {
       wait: "3-5",
       maxPerMinute: 15,
@@ -43,6 +44,12 @@ export const DEFAULT_SETTINGS = {
     coinsReserve: 0,
     maxResults: 0,
     skipGk: false,
+    profitCheck: true,
+    // Bénéfice minimum exigé à l'achat (anti-perte avant l'achat). 0 : celui de l'onglet Vente.
+    minProfit: 0,
+    fallingGuard: 5,
+    // Filtres « prix marché EA » : prix relu toutes les N minutes (3 à 60) et après chaque achat.
+    marketRefreshMinutes: 10,
   },
   bid: {
     enabled: false,
@@ -61,6 +68,8 @@ export const DEFAULT_SETTINGS = {
     futbinPercent: "99-100",
     duration: "1H",
     minProfit: 0,
+    noLoss: true,
+    noLossOwnCards: true,
     maxRating: 0,
   },
   timing: {
@@ -100,26 +109,142 @@ export const DEFAULT_SETTINGS = {
     onFail: false,
     onList: false,
     onStop: true,
+    onStart: false,
+    onSold: true,
+    onListFail: true,
+    summaryMinutes: 0,
   },
   prices: {
+    // "api" : API de l'appli FUTBIN (futbin.org) puis pages futbin.com en secours ; "pages" : pages seules.
+    source: "api",
     platform: "auto",
     hotInterval: 90,
     visibleInterval: 120,
     jumpGuard: 35,
     minGap: 1.5,
     iframeFallback: true,
+    listInterval: 180,
+    listPages: 3,
+  },
+  // Scanner de prime holo (onglet FUTBIN) : promo (rareté EA, 3 = TOTW) et tranche de prix des holo.
+  holo: {
+    rarity: 3,
+    minPrice: 10000,
+    maxPrice: 60000,
   },
   sbc: {
     margin: 5,
     triesPerPlayer: 6,
     wait: "3-5",
+    hidden: [],
+    squadValue: true,
+    softBanAlert: true,
+    excludeActiveSquad: true,
+    excludeEvolved: true,
+  },
+  // Aides sur le marché et le club (onglet Outils).
+  tools: {
+    bargain: true,
+    bargainPercent: 90,
+    boughtFor: true,
+    lowestBinSearches: 6,
+    clubMinRating: 0,
+    clubMaxRating: 0,
+    clubMinPrice: 0,
+    clubMaxPrice: 0,
+    quickSellMaxRating: 0,
+    exportPrices: false,
+    buyCheck: true,
+  },
+  hotkeys: {
+    enabled: true,
+    hints: true,
+    lossGuard: true,
+    bindings: {},
+  },
+  // Compteur de requêtes envoyées au marché EA (bot + recherches à la main).
+  usage: {
+    hourLimit: 900,
+    dayLimit: 4500,
+    autoPause: false,
+    burstWarning: true,
+    sbcHourLimit: 90,
+    sbcDayLimit: 300,
+  },
+  packs: {
+    duplicatesToStorage: true,
+    toTransferMin: 1000,
+    quickSellMaxRating: 0,
+    max: 10,
+    redeemMisc: true,
+    untradeableDuplicates: "quickSell",
+    skipAnimation: false,
+  },
+  // Résultats du marché (recherches à la main) : cartes masquées, tri, affaires, sélection auto.
+  results: {
+    hideOwned: false,
+    hideLeagues: [],
+    hideNations: [],
+    hideClubs: [],
+    hidePositions: [],
+    hideRarities: [],
+    hideStyles: [],
+    sort: "none",
+    onlyBargains: false,
+    bidBargains: false,
+    autoSelect: "none",
+  },
+  // Listes EA (transferts, non attribués, objectifs) : mise en vente groupée, totaux, relist auto.
+  lists: {
+    totals: true,
+    bulkMode: "percent",
+    bulkPercent: "100",
+    bulkSteps: 0,
+    bulkFixed: 0,
+    bulkDuration: "1H",
+    bulkDelay: "3-5",
+    relistInterval: 10,
+  },
+  // Choix de joueurs (packs « choix ») : meilleure carte mise en avant (le choix reste manuel).
+  picks: {
+    highlight: true,
+    priority: "price",
+  },
+  // Solveur DCE à partir du club (module solveur).
+  solver: {
+    excludeActiveSquad: true,
+    excludeEvolved: true,
+    excludeFavorites: true,
+    onlyUntradeables: false,
+    preferUntradeables: true,
+    preferStorage: true,
+    useStorage: true,
+    useMarket: true,
+    maxRating: 0,
+    maxPrice: 0,
+  },
+  // Galerie : achat des manquants (paliers de prix entre deux % du prix FUTBIN, essais, attente),
+  // revente après achat (garder, même prix, % FUTBIN), tuiles et pastille « collectée ».
+  gallery: {
+    useStorage: true,
+    buyRange: "85-100",
+    retries: 3,
+    wait: "2-4",
+    sellMode: "keep",
+    sellPercent: "100",
+    homeTile: true,
+    clubTile: true,
+    collectedBadge: true,
   },
   meta: {
     migrations: [],
   },
   ui: {
+    language: "auto",
     cardPrices: true,
+    itemScoreBadge: true,
     panelOpen: false,
+    dockPanel: true,
     logHeight: 34,
     logFilter: "all",
     activeTab: "target",

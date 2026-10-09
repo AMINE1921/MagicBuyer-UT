@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { pageGlobal, toPageArray } from "./page";
 import { ceilPrice, floorPrice, priceAbove, toInt } from "./prices";
 import { loadJson, loadLegacy, saveJson } from "./storage";
@@ -5,7 +6,10 @@ import { loadJson, loadLegacy, saveJson } from "./storage";
 // Un filtre = une cible de snipe (joueur / critères) + ses prix d'achat et de vente.
 export const DEFAULT_FILTER = {
   id: "",
-  name: "Nouveau filtre",
+  // Nom par défaut dans la langue de l'interface (lu à chaque création de filtre).
+  get name() {
+    return t("misc.filterDefaultName");
+  },
   enabled: true,
   type: "player",
   player: null, // { id: baseId, name, rating }
@@ -22,14 +26,22 @@ export const DEFAULT_FILTER = {
   minRating: 0,
   maxRating: 0,
   minBuy: 0,
-  maxBuy: 0, // prix d'achat max (BIN) ; en mode FUTBIN, plafond absolu optionnel
-  priceMode: "fixed", // "fixed" | "futbin" (achat à X % du prix FUTBIN)
-  futbinPercent: 90,
+  maxBuy: 0, // prix d'achat max (BIN) ; en mode FUTBIN ou prix marché, plafond absolu optionnel
+  // "fixed" | "futbin" (achat à X % du prix FUTBIN) | "market" (achat à X % du prix marché EA relu
+  // par le bot : version exacte, avec ou sans style de chimie, revente un palier sous ce prix)
+  priceMode: "fixed",
+  futbinPercent: 90, // X % d'achat des modes "futbin" et "market"
+  futbinList: "", // mode FUTBIN sans joueur : lien de liste FUTBIN (vide = construit d'après les critères)
+  futbinUrl: "", // page FUTBIN de la version exacte choisie (évite toute ambiguïté)
+  futbinId: 0,
   sellMode: "global", // "global" (onglet Vente) | "fixed" | "futbin"
   sellPrice: 0,
   sellPercent: "",
   maxBid: 0,
+  bidPercent: 0, // mode FUTBIN : enchère max à X % du prix FUTBIN de chaque carte (0 = enchère max fixe)
 };
+
+const PRICE_MODES = ["fixed", "futbin", "market"];
 
 const STORAGE_KEY = "filters";
 const listeners = new Set();
@@ -40,7 +52,7 @@ const makeId = () =>
 export const normalizeFilter = (raw) => {
   const filter = Object.assign({}, DEFAULT_FILTER, raw || {});
   filter.id = filter.id || makeId();
-  filter.name = String(filter.name || "").trim() || "Filtre";
+  filter.name = String(filter.name || "").trim() || t("misc.filterFallbackName");
   filter.enabled = filter.enabled !== false;
   filter.type = filter.type || "player";
   const player = filter.player;
@@ -69,9 +81,11 @@ export const normalizeFilter = (raw) => {
   ["level", "position", "category"].forEach((key) => {
     filter[key] = filter[key] ? String(filter[key]) : "any";
   });
-  filter.priceMode = filter.priceMode === "futbin" ? "futbin" : "fixed";
+  filter.priceMode = PRICE_MODES.includes(filter.priceMode) ? filter.priceMode : "fixed";
   const percent = parseFloat(filter.futbinPercent);
   filter.futbinPercent = Number.isFinite(percent) ? Math.min(150, Math.max(10, percent)) : 90;
+  const bidPercent = parseFloat(filter.bidPercent);
+  filter.bidPercent = Number.isFinite(bidPercent) && bidPercent > 0 ? Math.min(150, Math.max(10, bidPercent)) : 0;
   // Filtres enregistrés avant les modes de revente : un prix de revente saisi reste prioritaire.
   const wantedSell = raw && raw.sellMode;
   filter.sellMode = ["global", "fixed", "futbin"].includes(wantedSell)
@@ -80,6 +94,9 @@ export const normalizeFilter = (raw) => {
     ? "fixed"
     : "global";
   filter.sellPercent = String(filter.sellPercent || "").trim();
+  filter.futbinList = String(filter.futbinList || "").trim();
+  filter.futbinUrl = filter.definitionId ? String(filter.futbinUrl || "").trim() : "";
+  filter.futbinId = filter.definitionId ? toInt(filter.futbinId) : 0;
   return filter;
 };
 
@@ -134,7 +151,7 @@ const load = () => {
     };
   }
   const migrated = migrateLegacy();
-  const list = migrated.length ? migrated : [normalizeFilter({ name: "Mon filtre" })];
+  const list = migrated.length ? migrated : [normalizeFilter({ name: t("misc.filterFirstName") })];
   return {
     list,
     activeId: list[0].id,
@@ -196,19 +213,131 @@ export const duplicateFilter = (id) => {
   if (!source) {
     return null;
   }
-  return addFilter(Object.assign({}, source, { name: `${source.name} (copie)` }));
+  return addFilter(Object.assign({}, source, { name: t("misc.filterCopyName", { name: source.name }) }));
+};
+
+// Ménage : supprime d'un coup tous les filtres désactivés (une seule sauvegarde). Renvoie le nombre supprimé.
+export const removeInactiveFilters = () => {
+  const kept = data.list.filter((filter) => filter.enabled !== false);
+  const removed = data.list.length - kept.length;
+  if (!removed) {
+    return 0;
+  }
+  const list = kept.length ? kept : [normalizeFilter({ name: t("misc.filterFirstName") })];
+  const activeId = list.some((filter) => filter.id === data.activeId) ? data.activeId : list[0].id;
+  data = Object.assign({}, data, { list, activeId });
+  emit();
+  return removed;
 };
 
 export const removeFilter = (id) => {
   let list = data.list.filter((filter) => filter.id !== id);
   if (!list.length) {
-    list = [normalizeFilter({ name: "Mon filtre" })];
+    list = [normalizeFilter({ name: t("misc.filterFirstName") })];
   }
   const activeId = list.some((filter) => filter.id === data.activeId)
     ? data.activeId
     : list[0].id;
   data = Object.assign({}, data, { list, activeId });
   emit();
+};
+
+// Export JSON des filtres (sans identifiant interne, aucun secret dedans) : sauvegarde ou partage.
+export const FILTER_EXPORT_KIND = "magicbuyer-filters";
+const FILTER_KEYS = Object.keys(DEFAULT_FILTER).filter((key) => key !== "id");
+const MAX_IMPORT = 100;
+
+const portable = (filter) =>
+  FILTER_KEYS.reduce((copy, key) => {
+    copy[key] = filter[key];
+    return copy;
+  }, {});
+
+export const exportFilters = (ids = null) =>
+  JSON.stringify(
+    {
+      kind: FILTER_EXPORT_KIND,
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      filters: data.list.filter((filter) => !ids || ids.includes(filter.id)).map(portable),
+    },
+    null,
+    2
+  );
+
+// Import : les filtres lus sont ajoutés (jamais de remplacement), le premier devient actif.
+// Accepte l'export complet, une liste de filtres ou un filtre seul. { added, error: "" | "json" | "empty" }
+export const importFilters = (text) => {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(text || "").trim());
+  } catch (e) {
+    return { added: 0, error: "json" };
+  }
+  const raw = Array.isArray(parsed)
+    ? parsed
+    : parsed && Array.isArray(parsed.filters)
+    ? parsed.filters
+    : parsed && typeof parsed === "object" && !parsed.kind
+    ? [parsed]
+    : [];
+  const entries = raw.filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry)).slice(0, MAX_IMPORT);
+  if (!entries.length) {
+    return { added: 0, error: "empty" };
+  }
+  const added = entries.map((entry) =>
+    normalizeFilter(
+      FILTER_KEYS.reduce(
+        (copy, key) => {
+          if (key !== "name" && entry[key] !== undefined) {
+            copy[key] = entry[key];
+          }
+          return copy;
+        },
+        { name: typeof entry.name === "string" ? entry.name.slice(0, 60) : "" }
+      )
+    )
+  );
+  data = Object.assign({}, data, { list: data.list.concat(added), activeId: added[0].id });
+  emit();
+  return { added: added.length, error: "" };
+};
+
+// Préréglage « fourrage DCE » : une cible par note (or, mode FUTBIN), achat sous le prix FUTBIN
+// de chaque carte, revente à son prix FUTBIN ; rotation activée entre ces filtres. Les cartes les
+// moins chères de chaque note (liste FUTBIN triée par prix) sont suivies.
+// 84 et moins : prix plancher (vente rapide) trop proche du prix FUTBIN pour une marge utile.
+export const FODDER_PRESET = [
+  { rating: 85, futbinPercent: 85, bidPercent: 72 },
+  { rating: 86, futbinPercent: 85, bidPercent: 72 },
+  { rating: 87, futbinPercent: 85, bidPercent: 72 },
+];
+
+export const addFodderFilters = () => {
+  const added = FODDER_PRESET.map((preset) =>
+    normalizeFilter({
+      name: t("misc.fodderFilterName", { rating: preset.rating }),
+      type: "player",
+      level: "gold",
+      minRating: preset.rating,
+      maxRating: preset.rating,
+      priceMode: "futbin",
+      futbinPercent: preset.futbinPercent,
+      bidPercent: preset.bidPercent,
+      sellMode: "futbin",
+      sellPercent: "100",
+    })
+  );
+  data = Object.assign({}, data, {
+    list: data.list.concat(added),
+    activeId: added[0].id,
+    rotation: Object.assign({}, data.rotation, { enabled: true }),
+  });
+  // Seuls les filtres fourrage tournent : les autres sont décochés de la rotation.
+  const ids = new Set(added.map((filter) => filter.id));
+  data = Object.assign({}, data, { list: data.list.map((filter) => (ids.has(filter.id) || !filter.enabled ? filter : Object.assign({}, filter, { enabled: false }))) });
+  emit();
+  return added;
 };
 
 export const setRotation = (patch) => {
@@ -258,33 +387,47 @@ export const filterHasTarget = (filter) =>
 
 export const describeFilter = (filter) => {
   if (!filter) {
-    return "Aucun filtre";
+    return t("misc.filterNone");
   }
   const parts = [];
   if (filter.player) {
     parts.push(
-      `${filter.player.name || "Joueur"}${filter.player.rating ? ` ${filter.player.rating}` : ""}`
+      `${filter.player.name || t("misc.filterPlayer")}${filter.player.rating ? ` ${filter.player.rating}` : ""}`
     );
   } else if (filter.definitionId) {
-    parts.push(`Carte #${filter.definitionId}`);
+    parts.push(t("misc.filterCard", { id: filter.definitionId }));
   } else {
-    parts.push("Tous les joueurs");
+    parts.push(t("misc.filterAllPlayers"));
   }
-  const levels = { bronze: "Bronze", silver: "Argent", gold: "Or", SP: "Spéciale" };
+  const levels = { bronze: "misc.levelBronze", silver: "misc.levelSilver", gold: "misc.levelGold", SP: "misc.levelSpecial" };
   if (levels[filter.level]) {
-    parts.push(levels[filter.level]);
+    parts.push(t(levels[filter.level]));
   }
   if (filter.rarities.length) {
-    parts.push(`rareté ${filter.rarities.join("/")}`);
+    parts.push(t("misc.filterRarity", { ids: filter.rarities.join("/") }));
   }
   if (filter.position && filter.position !== "any") {
     parts.push(filter.position);
   }
+  if (filter.nation > 0) {
+    parts.push(t("misc.filterNation", { id: filter.nation }));
+  }
+  if (filter.league > 0) {
+    parts.push(t("misc.filterLeague", { id: filter.league }));
+  }
+  if (filter.club > 0) {
+    parts.push(t("misc.filterClub", { id: filter.club }));
+  }
+  if (filter.playStyle > 0) {
+    parts.push(t("misc.filterStyle", { id: filter.playStyle }));
+  }
   if (filter.minRating || filter.maxRating) {
-    parts.push(`note ${filter.minRating || "…"}–${filter.maxRating || "…"}`);
+    parts.push(t("misc.filterRating", { min: filter.minRating || "…", max: filter.maxRating || "…" }));
   }
   if (filter.priceMode === "futbin") {
-    parts.push(`achat ≤ ${filter.futbinPercent} % FUTBIN`);
+    parts.push(t("misc.filterFutbinBuy", { percent: filter.futbinPercent }));
+  } else if (filter.priceMode === "market") {
+    parts.push(t("misc.filterMarketBuy", { percent: filter.futbinPercent }));
   }
   return parts.join(" · ");
 };
@@ -332,8 +475,11 @@ export const buildCriteria = (filter, prices = {}) => {
   if (filter.level && filter.level !== "any") {
     criteria.level = filter.level;
   }
+  // Une seule rareté par requête, comme le web app (plusieurs raretés à la fois = requête qu'aucun
+  // client EA n'envoie) : avec plusieurs raretés, chaque recherche prend la suivante (rarityIndex).
   if (filter.rarities.length) {
-    criteria.rarities = toPageArray(filter.rarities);
+    const index = Math.max(0, toInt(prices.rarityIndex)) % filter.rarities.length;
+    criteria.rarities = toPageArray([filter.rarities[index]]);
   }
   if (filter.zone >= 0) {
     criteria.zone = filter.zone;
@@ -396,6 +542,10 @@ export const cacheBusterPrices = (mode, step, { maxBuy, minBuy, maxBid, cap }) =
   let effective = mode;
   if (effective === "auto") {
     effective = maxBuy && !maxBid ? "maxBid" : "minBuy";
+  }
+  // Achat min déjà fixé (tranche de prix) : la variation passe par l'enchère max.
+  if (effective === "minBuy" && minBuy && maxBuy && !maxBid) {
+    effective = "maxBid";
   }
   if (effective === "maxBid" && maxBuy) {
     out.maxBid = ladder(maxBuy, index);

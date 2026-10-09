@@ -3,10 +3,11 @@ import { KIND, isFatal } from "./errors";
 import { durationSeconds, futbinSellPrice, prepareListing } from "./listing";
 import { log } from "./logger";
 import * as market from "./market";
-import { formatCoins } from "./prices";
+import { breakEvenPrice, formatCoins, toInt } from "./prices";
 import { randomBetween } from "./ranges";
 import { getSettings } from "./settings";
 import { recordTransaction } from "./state";
+import { t } from "../i18n";
 import { currentPrice, requestPrice } from "../prices/priceService";
 
 // Mise en vente groupée de la liste des transferts au prix FUTBIN du moment
@@ -49,7 +50,7 @@ export const listTransferAtFutbin = async ({ token, includeExpired = true, onPro
   const report = { total: 0, listed: 0, skipped: 0, noPrice: 0, stopped: "" };
   const list = await market.fetchTransferList();
   if (!list.ok) {
-    report.stopped = `liste des transferts indisponible (${list.error.label})`;
+    report.stopped = t("sbc.listUnavailable", { error: list.error.label });
     return report;
   }
   const items = list.items.filter((item) => listable(item, includeExpired));
@@ -59,7 +60,7 @@ export const listTransferAtFutbin = async ({ token, includeExpired = true, onPro
   const duration = durationSeconds(sell.duration);
   for (let index = 0; index < items.length; index += 1) {
     if (token.cancelled) {
-      report.stopped = "arrêt demandé";
+      report.stopped = t("sbc.stopRequested");
       break;
     }
     const item = items[index];
@@ -75,19 +76,21 @@ export const listTransferAtFutbin = async ({ token, includeExpired = true, onPro
     if (!reference) {
       report.noPrice += 1;
       report.skipped += 1;
-      log.warn(`${name} : prix FUTBIN indisponible, carte laissée telle quelle.`);
+      log.warn(t("sbc.listNoPrice", { name }));
       continue;
     }
     const { price } = futbinSellPrice(reference, sell.futbinPercent);
-    const listing = await prepareListing(item, price);
+    // Jamais sous le prix payé (+ taxe EA) quand il est connu.
+    const floor = sell.noLoss !== false ? breakEvenPrice(Number(item.lastSalePrice) || 0, toInt(sell.minProfit)) : 0;
+    const listing = await prepareListing(item, floor && price < floor ? floor : price);
     const result = await market.listOnMarket(item, listing.start, listing.buyNow, duration);
     if (result.ok) {
       report.listed += 1;
-      log.success(`Mis en vente : ${name} à ${formatCoins(listing.buyNow)} (FUTBIN ${formatCoins(reference)}).`);
-      recordTransaction({ type: "mise en vente FUTBIN", name, rating: market.ratingOf(item), price: listing.buyNow });
+      log.success(t("sbc.listListed", { name, price: formatCoins(listing.buyNow), futbin: formatCoins(reference) }));
+      recordTransaction({ type: t("sbc.txFutbinListing"), name, rating: market.ratingOf(item), price: listing.buyNow });
     } else {
       report.skipped += 1;
-      log.warn(`Mise en vente de ${name} refusée : ${result.error.label}.`);
+      log.warn(t("sbc.listRefused", { name, error: result.error.label }));
       if (stopsTask(result.error)) {
         report.stopped = result.error.label;
         break;

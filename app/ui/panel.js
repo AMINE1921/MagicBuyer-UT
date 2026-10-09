@@ -1,3 +1,4 @@
+import { SOLVER_STYLES } from "./solverStyles";
 import { VERSION } from "../config";
 import { isFinalizing, isPaused, isRunning, isStopping, pauseBot, resumeBot, startBot, stopBot } from "../core/engine";
 import { describeFilter, getActiveFilter, onFiltersChange, runnableFilters } from "../core/filters";
@@ -6,7 +7,6 @@ import { formatDuration } from "../core/ranges";
 import { getSettings, onSettingsChange, setSetting } from "../core/settings";
 import {
   STATUS,
-  STATUS_LABEL,
   clearLogs,
   getLogs,
   getState,
@@ -14,13 +14,16 @@ import {
   onLog,
   onStateChange,
   searchesLastMinute,
+  statusLabel,
 } from "../core/state";
+import { gameLanguage, language, locale, t } from "../i18n";
 import { escapeHtml, formatTime, qs, qsa, setText, toggleClass } from "./dom";
 import { bindFields, refreshFields } from "./fields";
 import {
   alertsPageHtml,
   bindSettingsPages,
   buyPageHtml,
+  refreshLanguageField,
   refreshTransferStats,
   sellPageHtml,
   timingPageHtml,
@@ -28,30 +31,37 @@ import {
 } from "./pages/settingsPages";
 import { bindFutbinPage, futbinPageHtml, refreshFutbinStatus } from "./pages/futbinPage";
 import { bindTargetPage, sellExtra, targetPageHtml } from "./pages/target";
+import { bindToolsPage, refreshToolsPage, toolsPageHtml } from "./pages/toolsPage";
 import { STYLES } from "./styles";
 
+// Libellés lus au rendu : le panneau est reconstruit quand la langue de l'interface change.
 const TABS = [
-  { id: "target", label: "Cible", html: targetPageHtml },
-  { id: "buy", label: "Achat", html: buyPageHtml },
-  { id: "sell", label: "Vente", html: sellPageHtml },
-  { id: "timing", label: "Timing", html: timingPageHtml },
-  { id: "transfer", label: "Transferts", html: transferPageHtml },
-  { id: "futbin", label: "FUTBIN", html: futbinPageHtml },
-  { id: "alerts", label: "Alertes", html: alertsPageHtml },
+  { id: "target", label: () => t("ui.tabTarget"), html: targetPageHtml },
+  { id: "buy", label: () => t("ui.tabBuy"), html: buyPageHtml },
+  { id: "sell", label: () => t("ui.tabSell"), html: sellPageHtml },
+  { id: "timing", label: () => t("ui.tabTiming"), html: timingPageHtml },
+  { id: "transfer", label: () => t("ui.tabTransfer"), html: transferPageHtml },
+  { id: "futbin", label: () => "FUTBIN", html: futbinPageHtml },
+  { id: "tools", label: () => t("tools.tab"), html: toolsPageHtml },
+  { id: "alerts", label: () => t("ui.tabAlerts"), html: alertsPageHtml },
 ];
 
 const LOG_ICONS = { search: "🔎", buy: "✅", success: "✔️", warning: "⚠️", error: "⛔", info: "•" };
+// [filtre, clé du libellé]
 const LOG_FILTERS = [
-  ["all", "Tout"],
-  ["quiet", "Sans recherches"],
-  ["buys", "Achats"],
-  ["alerts", "Alertes"],
+  ["all", "ui.logAll"],
+  ["quiet", "ui.logQuiet"],
+  ["buys", "ui.logBuys"],
+  ["alerts", "ui.logAlerts"],
 ];
 
 let root = null;
 let ticker = null;
 // Abonnements globaux du panneau : remplacés (jamais cumulés) si le panneau est recréé.
 let unsubscribers = [];
+// Langue de l'interface (et langue du compte FC) utilisées pour construire le panneau.
+let builtLanguage = "";
+let builtGameLanguage = "";
 
 export const injectStyles = () => {
   if (document.getElementById("mb-styles")) {
@@ -59,7 +69,7 @@ export const injectStyles = () => {
   }
   const style = document.createElement("style");
   style.id = "mb-styles";
-  style.textContent = STYLES;
+  style.textContent = STYLES + SOLVER_STYLES;
   (document.head || document.documentElement).appendChild(style);
 };
 
@@ -67,43 +77,43 @@ const shellHtml = () => `
   <aside class="mb-panel" role="complementary" aria-label="MagicBuyer">
     <header class="mb-head">
       <div class="mb-logo">MB</div>
-      <div class="mb-title"><strong>MagicBuyer</strong><small>Sniper FC 27 · v${VERSION}</small></div>
-      <button type="button" class="mb-icon-btn" data-action="close" aria-label="Fermer le panneau" title="Fermer">×</button>
+      <div class="mb-title"><strong>MagicBuyer</strong><small>${t("ui.subtitle", { version: VERSION })}</small></div>
+      <button type="button" class="mb-icon-btn" data-action="close" aria-label="${escapeHtml(t("ui.closePanel"))}" title="${escapeHtml(t("ui.close"))}">×</button>
     </header>
     <div class="mb-bar">
       <div class="mb-state" data-state data-status="idle">
         <span class="mb-dot"></span>
-        <span class="mb-state-text"><b data-state-label>À l'arrêt</b><small data-state-detail></small></span>
+        <span class="mb-state-text"><b data-state-label>${statusLabel(STATUS.IDLE)}</b><small data-state-detail></small></span>
       </div>
-      <button type="button" class="mb-btn mb-btn-start" data-action="start">▶ Démarrer</button>
-      <button type="button" class="mb-btn mb-btn-pause" data-action="pause" hidden>❚❚ Pause</button>
-      <button type="button" class="mb-btn mb-btn-stop" data-action="stop" hidden>■ Stop</button>
+      <button type="button" class="mb-btn mb-btn-start" data-action="start">▶ ${t("ui.start")}</button>
+      <button type="button" class="mb-btn mb-btn-pause" data-action="pause" hidden>❚❚ ${t("ui.pause")}</button>
+      <button type="button" class="mb-btn mb-btn-stop" data-action="stop" hidden>■ ${t("ui.stop")}</button>
     </div>
     <div class="mb-kpis">
-      <div class="mb-kpi"><span>Recherches</span><strong data-kpi="searches">0</strong></div>
-      <div class="mb-kpi"><span>/ minute</span><strong data-kpi="rate">0</strong></div>
-      <div class="mb-kpi is-good"><span>Achats</span><strong data-kpi="won">0</strong></div>
-      <div class="mb-kpi"><span>Ratés</span><strong data-kpi="missed">0</strong></div>
-      <div class="mb-kpi"><span>Dépensé</span><strong data-kpi="spent">0</strong></div>
-      <div class="mb-kpi"><span>Profit estimé</span><strong data-kpi="profit">0</strong></div>
-      <div class="mb-kpi"><span>Coins</span><strong data-kpi="coins">—</strong></div>
-      <div class="mb-kpi"><span>Durée</span><strong data-kpi="time">00:00:00</strong></div>
+      <div class="mb-kpi"><span>${t("ui.kpiSearches")}</span><strong data-kpi="searches">0</strong></div>
+      <div class="mb-kpi"><span>${t("ui.kpiRate")}</span><strong data-kpi="rate">0</strong></div>
+      <div class="mb-kpi is-good"><span>${t("ui.kpiPurchases")}</span><strong data-kpi="won">0</strong></div>
+      <div class="mb-kpi"><span>${t("ui.kpiMissed")}</span><strong data-kpi="missed">0</strong></div>
+      <div class="mb-kpi"><span>${t("ui.kpiSpent")}</span><strong data-kpi="spent">0</strong></div>
+      <div class="mb-kpi"><span>${t("ui.kpiProfit")}</span><strong data-kpi="profit">0</strong><small data-kpi="real" hidden></small></div>
+      <div class="mb-kpi"><span>${t("ui.kpiCoins")}</span><strong data-kpi="coins">—</strong></div>
+      <div class="mb-kpi"><span>${t("ui.kpiTime")}</span><strong data-kpi="time">00:00:00</strong></div>
     </div>
-    <div class="mb-next" aria-hidden="true"><div class="mb-next-fill" data-next-fill></div><span class="mb-next-label" data-next-label>Prêt</span></div>
+    <div class="mb-next" aria-hidden="true"><div class="mb-next-fill" data-next-fill></div><span class="mb-next-label" data-next-label>${t("ui.ready")}</span></div>
     <nav class="mb-tabs" role="tablist">
-      ${TABS.map((tab) => `<button type="button" class="mb-tab" role="tab" data-tab="${tab.id}">${tab.label}</button>`).join("")}
+      ${TABS.map((tab) => `<button type="button" class="mb-tab" role="tab" data-tab="${tab.id}">${tab.label()}</button>`).join("")}
     </nav>
     <div class="mb-body" data-body>
       ${TABS.map((tab) => `<div class="mb-page" role="tabpanel" data-page="${tab.id}">${tab.html()}</div>`).join("")}
     </div>
     <section class="mb-log" data-log>
-      <div class="mb-log-resize" data-log-resize title="Glisser pour redimensionner"></div>
+      <div class="mb-log-resize" data-log-resize title="${escapeHtml(t("ui.logResize"))}"></div>
       <div class="mb-log-head">
-        <strong>Journal</strong>
-        ${LOG_FILTERS.map(([id, label]) => `<button type="button" class="mb-log-filter" data-log-filter="${id}">${label}</button>`).join("")}
-        <button type="button" class="mb-icon-btn" data-action="export" title="Exporter les transactions (CSV)" aria-label="Exporter">⇩</button>
-        <button type="button" class="mb-icon-btn" data-action="clear-log" title="Vider le journal" aria-label="Vider le journal">⌫</button>
-        <button type="button" class="mb-icon-btn" data-action="collapse-log" title="Réduire / agrandir" aria-label="Réduire le journal">▾</button>
+        <strong>${t("ui.log")}</strong>
+        ${LOG_FILTERS.map(([id, key]) => `<button type="button" class="mb-log-filter" data-log-filter="${id}">${t(key)}</button>`).join("")}
+        <button type="button" class="mb-icon-btn" data-action="export" title="${escapeHtml(t("ui.exportTitle"))}" aria-label="${escapeHtml(t("ui.export"))}">⇩</button>
+        <button type="button" class="mb-icon-btn" data-action="clear-log" title="${escapeHtml(t("ui.clearLog"))}" aria-label="${escapeHtml(t("ui.clearLog"))}">⌫</button>
+        <button type="button" class="mb-icon-btn" data-action="collapse-log" title="${escapeHtml(t("ui.collapseTitle"))}" aria-label="${escapeHtml(t("ui.collapseLog"))}">▾</button>
       </div>
       <ol class="mb-log-list" data-log-list aria-live="polite"></ol>
     </section>
@@ -184,21 +194,32 @@ const appendLog = (entry) => {
 };
 
 const exportCsv = () => {
-  const rows = [["heure", "type", "carte", "note", "prix", "bénéfice", "filtre"]];
-  getTransactions().forEach((t) =>
+  const rows = [
+    [t("ui.csvTime"), t("ui.csvType"), t("ui.csvCard"), t("ui.csvRating"), t("ui.csvPrice"), t("ui.csvProfit"), t("ui.csvFilter")],
+  ];
+  getTransactions().forEach((tx) =>
     rows.push([
-      new Date(t.time).toLocaleString("fr-FR"),
-      t.type,
-      t.name,
-      t.rating || "",
-      t.price || "",
-      t.profit || "",
-      t.filter || "",
+      new Date(tx.time).toLocaleString(locale()),
+      tx.type,
+      tx.name,
+      tx.rating || "",
+      tx.price || "",
+      tx.profit || "",
+      tx.filter || "",
     ])
   );
   const stats = getState().stats;
   rows.push([]);
-  rows.push(["recherches", stats.searches, "achats", stats.won, "dépensé", stats.spent, "profit estimé", stats.estProfit]);
+  rows.push([
+    t("ui.csvSearches"),
+    stats.searches,
+    t("ui.csvPurchases"),
+    stats.won,
+    t("ui.csvSpent"),
+    stats.spent,
+    t("ui.csvEstProfit"),
+    stats.estProfit,
+  ]);
   const csv = rows
     .map((row) => row.map((cell) => `"${String(cell == null ? "" : cell).replace(/"/g, '""')}"`).join(";"))
     .join("\n");
@@ -218,10 +239,10 @@ const stateDetail = (state) => {
       return state.detail;
     }
     const filters = runnableFilters();
-    return filters.length > 1 ? `${filters.length} filtres prêts` : describeFilter(getActiveFilter());
+    return filters.length > 1 ? t("ui.filtersReady", { n: filters.length }) : describeFilter(getActiveFilter());
   }
   if (state.status === STATUS.PAUSED) {
-    return "Clique sur Reprendre pour continuer";
+    return t("ui.pausedHint");
   }
   return state.filterName || describeFilter(getActiveFilter());
 };
@@ -229,26 +250,24 @@ const stateDetail = (state) => {
 const nextLabel = (state, now) => {
   const remaining = Math.max(0, (state.nextSearchAt || 0) - now);
   if (state.status === STATUS.AUTO_PAUSE) {
-    return `Pause automatique · reprise dans ${formatDuration(remaining)}`;
+    return t("ui.nextAutoPause", { duration: formatDuration(remaining) });
   }
   if (state.status === STATUS.COOLDOWN) {
-    return `Pause de sécurité · reprise dans ${formatDuration(remaining)}`;
+    return t("ui.nextCooldown", { duration: formatDuration(remaining) });
   }
   if (state.status === STATUS.PAUSED) {
-    return "En pause";
+    return t("ui.nextPaused");
   }
   if (state.status === STATUS.STOPPING) {
-    return isFinalizing()
-      ? "Mise en vente des cartes achetées… (Stop pour interrompre)"
-      : "Arrêt en cours (fin de la requête en cours)…";
+    return isFinalizing() ? t("ui.nextFinalizing") : t("ui.nextStopping");
   }
   if (state.status === STATUS.RUNNING) {
-    return state.nextSearchAt ? `Prochaine recherche dans ${(remaining / 1000).toFixed(1)} s` : "Recherche en cours…";
+    return state.nextSearchAt ? t("ui.nextSearchIn", { seconds: (remaining / 1000).toFixed(1) }) : t("ui.nextSearching");
   }
   if (state.status === STATUS.STARTING) {
-    return "Synchronisation avec EA…";
+    return t("ui.nextSyncing");
   }
-  return "Prêt";
+  return t("ui.ready");
 };
 
 const paintState = () => {
@@ -262,7 +281,7 @@ const paintState = () => {
   if (stateEl.dataset.status !== state.status) {
     stateEl.dataset.status = state.status;
   }
-  setText(qs(root, "[data-state-label]"), STATUS_LABEL[state.status] || state.status);
+  setText(qs(root, "[data-state-label]"), statusLabel(state.status) || state.status);
   setText(qs(root, "[data-state-detail]"), stateDetail(state));
   const running = isRunning();
   const stopping = isStopping();
@@ -270,7 +289,7 @@ const paintState = () => {
   const pauseBtn = qs(root, '[data-action="pause"]');
   const stopBtn = qs(root, '[data-action="stop"]');
   startBtn.hidden = stopping || (running && !isPaused());
-  setText(startBtn, isPaused() ? "▶ Reprendre" : "▶ Démarrer");
+  setText(startBtn, `▶ ${isPaused() ? t("ui.resume") : t("ui.start")}`);
   pauseBtn.hidden = !running || isPaused() || stopping;
   stopBtn.hidden = !running;
   stopBtn.disabled = stopping && !isFinalizing();
@@ -280,6 +299,16 @@ const paintState = () => {
   setText(qs(root, '[data-kpi="missed"]'), stats.missed);
   setText(qs(root, '[data-kpi="spent"]'), formatCoins(stats.spent));
   setText(qs(root, '[data-kpi="profit"]'), `${stats.estProfit > 0 ? "+" : ""}${formatCoins(stats.estProfit)}`);
+  const real = qs(root, '[data-kpi="real"]');
+  if (real) {
+    real.hidden = !stats.salesKnown;
+    if (stats.salesKnown) {
+      const coins = `${stats.realProfit >= 0 ? "+" : "−"}${formatCoins(Math.abs(stats.realProfit))}`;
+      setText(real, t("ui.kpiRealProfit", { coins }));
+      real.title = t("ui.kpiRealProfitTitle", { n: stats.salesKnown });
+      real.classList.toggle("is-bad", stats.realProfit < 0);
+    }
+  }
   setText(qs(root, '[data-kpi="coins"]'), state.coins ? formatCoins(state.coins) : "—");
   const elapsed = state.startedAt ? (running ? now : state.stoppedAt || now) - state.startedAt : 0;
   setText(qs(root, '[data-kpi="time"]'), formatDuration(elapsed));
@@ -299,7 +328,7 @@ const paintState = () => {
 };
 
 const showTab = (id) => {
-  const tab = TABS.some((t) => t.id === id) ? id : "target";
+  const tab = TABS.some((entry) => entry.id === id) ? id : "target";
   qsa(root, "[data-tab]").forEach((btn) => {
     const active = btn.dataset.tab === tab;
     toggleClass(btn, "is-active", active);
@@ -315,6 +344,9 @@ const showTab = (id) => {
   if (tab === "futbin") {
     refreshFutbinStatus(qs(root, "[data-body]"));
   }
+  if (tab === "tools") {
+    refreshToolsPage();
+  }
 };
 
 const startTicker = () => {
@@ -323,11 +355,22 @@ const startTicker = () => {
   }
   let beats = 0;
   ticker = setInterval(() => {
+    beats += 1;
+    // Langue du compte FC connue après le démarrage (EA charge sa langue tardivement) : toutes les 3 s.
+    if (beats % 12 === 0) {
+      try {
+        refreshLanguage();
+      } catch (e) {
+        console.warn("[MagicBuyer] langue de l'interface", e);
+      }
+    }
     if (root && root.classList.contains("is-open")) {
       paintState();
-      beats += 1;
       if (beats % 8 === 0 && getSettings().ui.activeTab === "futbin") {
         refreshFutbinStatus(qs(root, "[data-body]"));
+      }
+      if (beats % 8 === 0 && getSettings().ui.activeTab === "tools") {
+        refreshToolsPage();
       }
     }
   }, 250);
@@ -349,9 +392,19 @@ const bindShell = () => {
   bindTargetPage(qs(root, '[data-page="target"]'), refreshAll);
   bindSettingsPages(body, refreshAll);
   bindFutbinPage(qs(root, '[data-page="futbin"]'));
+  bindToolsPage(qs(root, '[data-page="tools"]'));
   unsubscribers.forEach((off) => off());
   unsubscribers = [
-    onSettingsChange(() => refreshAll()),
+    onSettingsChange((settings, path) => {
+      refreshAll();
+      if (path === "ui.dockPanel" || path === "*") {
+        applyDock();
+      }
+      if (path === "ui.language" || path === "*") {
+        // Après la fin du changement en cours : le sélecteur de langue fait partie du panneau reconstruit.
+        setTimeout(() => refreshLanguage({ force: true }), 0);
+      }
+    }),
     onFiltersChange(() => paintState()),
   ];
 
@@ -386,7 +439,7 @@ const bindShell = () => {
         pauseBot();
         break;
       case "stop":
-        stopBot("arrêt manuel", { manual: true });
+        stopBot(t("ui.manualStop"), { manual: true });
         break;
       case "clear-log":
         clearLogs();
@@ -451,6 +504,8 @@ export const ensurePanel = () => {
   injectStyles();
   root = document.getElementById("mb-root");
   if (!root) {
+    builtLanguage = language();
+    builtGameLanguage = gameLanguage();
     root = document.createElement("div");
     root.id = "mb-root";
     root.innerHTML = shellHtml();
@@ -466,12 +521,20 @@ export const ensurePanel = () => {
 
 export const isPanelOpen = () => !!(root && root.classList.contains("is-open"));
 
+// Panneau ancré (écrans larges, voir styles) : le web app EA rétrécit au lieu d'être recouvert.
+const applyDock = () => {
+  if (document.body) {
+    document.body.classList.toggle("mb-dock", getSettings().ui.dockPanel !== false);
+  }
+};
+
 export const openPanel = () => {
   const el = ensurePanel();
   if (!el) {
     return;
   }
   el.classList.add("is-open");
+  applyDock();
   document.body.classList.add("mb-open");
   setSetting("ui.panelOpen", true);
   paintState();
@@ -492,4 +555,58 @@ export const togglePanel = () => (isPanelOpen() ? closePanel() : openPanel());
 export const showTargetTab = () => {
   openPanel();
   showTab("target");
+};
+
+// ------------------------------------------------------ langue de l'interface
+
+// Reconstruit tout le panneau dans la langue actuelle. Conservés : ouverture, journal réduit, et
+// onglet actif (réglage ui.activeTab, rouvert par ensurePanel).
+const rebuildPanel = () => {
+  const wasOpen = isPanelOpen();
+  const logCollapsed = !!(root && qs(root, "[data-log].is-collapsed"));
+  const current = document.getElementById("mb-root");
+  if (current) {
+    current.remove();
+  }
+  if (root && root !== current) {
+    root.remove();
+  }
+  root = null;
+  // Entrées en attente : déjà affichées par le rendu complet du nouveau journal.
+  pendingLogs = [];
+  if (!ensurePanel()) {
+    return;
+  }
+  if (logCollapsed) {
+    qs(root, "[data-log]").classList.add("is-collapsed");
+    setText(qs(root, '[data-action="collapse-log"]'), "▴");
+  }
+  if (wasOpen) {
+    openPanel();
+  }
+};
+
+const isEditingInPanel = () => {
+  const el = document.activeElement;
+  return !!(el && root && root.contains(el) && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName));
+};
+
+// Langue effective changée (réglage, ou langue du compte FC connue après le démarrage) : le panneau
+// est reconstruit, jamais pendant une saisie sauf si le changement vient du sélecteur de langue (force).
+// Même langue mais langue du compte FC différente : seul le libellé « Automatique (…) » change.
+export const refreshLanguage = ({ force = false } = {}) => {
+  if (!root || !document.body || !document.body.contains(root)) {
+    return;
+  }
+  if (language() !== builtLanguage) {
+    if (force || !isEditingInPanel()) {
+      rebuildPanel();
+    }
+    return;
+  }
+  const game = gameLanguage();
+  if (game !== builtGameLanguage) {
+    builtGameLanguage = game;
+    refreshLanguageField(qs(root, "[data-body]"));
+  }
 };

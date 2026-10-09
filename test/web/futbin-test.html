@@ -1,0 +1,237 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>FC Ultimate Team Web App - test MagicBuyer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://www.ea.com/ea-sports-fc/ultimate-team/web-app/css/all.css?_=11321">
+<script>
+  window.fut_resourceRoot = location.origin;
+  window.fut_resourceBase = "/ea-sports-fc/ultimate-team/web-app/content/";
+  window.fut_guid = "27A3C9F1-6B2E-4D7A-8C1F-2E9B5A4D6C7E";
+  window.fut_year = "2027";
+
+  // ---------------- faux web app EA FC 27 (mêmes signatures que le vrai) ----------------
+  (function () {
+    function EAObservable() { this._observers = []; }
+    EAObservable.prototype.observe = function (scope, cb) { this._observers.push({ scope: scope, cb: cb }); return this; };
+    EAObservable.prototype.unobserve = function (scope) { this._observers = this._observers.filter(function (o) { return o.scope !== scope; }); return this; };
+    EAObservable.prototype.notify = function (data) { var self = this; setTimeout(function () { self._observers.slice().forEach(function (o) { o.cb.call(o.scope, self, data); }); }, 0); return this; };
+    window.EAObservable = EAObservable;
+    function later(data, ms) { var o = new EAObservable(); setTimeout(function () { o.notify(data); }, ms == null ? 120 + Math.random() * 120 : ms); return o; }
+
+    function UTSearchCriteriaDTO() {
+      this._type = "any"; this.category = "any"; this.position = "any"; this.zone = -1; this.level = "any"; this.rarities = []; this.defId = [];
+      this.maskedDefId = 0; this.nation = -1; this.league = -1; this.club = -1; this.playStyle = -1; this.minBid = 0; this.maxBid = 0; this.minBuy = 0; this.maxBuy = 0; this.offset = 0; this.count = 20;
+    }
+    Object.defineProperty(UTSearchCriteriaDTO.prototype, "type", { get: function () { return this._type; }, set: function (v) { if (v !== this._type) { this._type = v; this.nation = -1; } } });
+    window.UTSearchCriteriaDTO = UTSearchCriteriaDTO;
+    window.ItemPile = { TRANSFER: 5, PURCHASED: 6, CLUB: 7, INBOX: 8 };
+    window.UtasErrorCode = { CAPTCHA_REQUIRED: 458, PERMISSION_DENIED: 461, NO_TRADE_EXISTS: 478, LOCKED_TRANSFER_MARKET: 494, NOT_ENOUGH_CREDIT: 470, DESTINATION_FULL: 473, ACCOUNT_BANNED: 20000, UNRECOVERABLE: 20004 };
+    window.UINotificationType = { POSITIVE: "positive", NEGATIVE: "negative" };
+    window.UTCurrencyInputControl = { PRICE_TIERS: [{ min: 1e5, inc: 1e3 }, { min: 5e4, inc: 500 }, { min: 1e4, inc: 250 }, { min: 1e3, inc: 100 }, { min: 150, inc: 50 }, { min: 0, inc: 150 }] };
+    window.AUCTION_MAX_BID = 15000000;
+    window.isPhone = function () { return window.innerWidth < 700; };
+
+    var coins = 250000;
+    var tradeSeq = 5000;
+    var auctionProto = {
+      isSold: function () { return this._state === "sold"; }, isExpired: function () { return this._state === "expired"; },
+      isSelling: function () { return this._state === "selling"; }, isWon: function () { return this._state === "won"; },
+      isOutbid: function () { return false; }, isActiveTrade: function () { return this._state === "active"; }, isClosedTrade: function () { return this._state === "closed"; },
+    };
+    function makeItem(spec) {
+      var auction = Object.assign(Object.create(auctionProto), { tradeId: String(spec.tradeId || tradeSeq++), buyNowPrice: spec.bin || 0, currentBid: spec.bid || 0, startingBid: spec.start || 150, expires: spec.expires == null ? 3500 : spec.expires, tradeOwner: !!spec.own, _state: spec.state || "active" });
+      return {
+        id: Math.floor(Math.random() * 1e9), definitionId: spec.definitionId || 231747, rating: spec.rating || 91, type: "player", pile: 6,
+        _staticData: { name: spec.name || "Mbappé", knownAs: spec.name || "Mbappé" },
+        getAuctionData: function () { return auction; }, isGK: function () { return false; }, isPlayer: function () { return true; },
+        hasPriceLimits: function () { return !!this._limits; }, getPriceLimits: function () { return this._limits; }, isTradeable: function () { return true; },
+      };
+    }
+    window.__mbTest = { searches: 0, bids: [], lists: [], captchaAt: 0, errorAt: 0 };
+    var transferItems = [
+      makeItem({ name: "Mbappé", rating: 91, state: "selling", bin: 52000 }),
+      makeItem({ name: "Mbappé", rating: 91, state: "sold", bid: 51500, bin: 52000 }),
+      makeItem({ name: "Salah", rating: 89, definitionId: 209331, state: "expired", bin: 30000 }),
+    ];
+    window.services = {
+      Item: {
+        clearTransferMarketCache: function () {},
+        searchTransferMarket: function (criteria, page) {
+          window.__mbTest.searches++;
+          var n = window.__mbTest.searches;
+          if (window.__mbTest.captchaAt && n >= window.__mbTest.captchaAt) { return later({ success: false, status: 458, error: { code: 458 } }); }
+          if (criteria.defId && criteria.defId.length) {
+            var did = criteria.defId[0];
+            var pos = { 1009: 23, 1010: 25, 1011: 27 }[did];
+            var offer = makeItem({ definitionId: did, name: "Acheté " + did, rating: 85, bin: Math.min(criteria.maxBuy || 20000, 20000 + (did - 1000) * 100) });
+            offer.databaseId = did; offer.possiblePositions = [pos]; offer.isValid = function () { return true; };
+            return later({ success: true, status: 200, data: { items: [offer] } });
+          }
+          var max = criteria.maxBuy || 50000;
+          var items = [];
+          var count = Math.floor(Math.random() * 3);
+          for (var i = 0; i < count; i++) {
+            var price = Math.round((max * (0.9 + Math.random() * 0.1)) / 250) * 250;
+            items.push(makeItem({ bin: Math.min(price, max), start: price - 250, expires: 3000 + Math.floor(Math.random() * 600) }));
+          }
+          if (n % 7 === 0) { items.push(makeItem({ bin: Math.round(max * 0.8 / 250) * 250, expires: 3598 })); }
+          return later({ success: true, status: 200, data: { items: items } });
+        },
+        bid: function (item, price) {
+          window.__mbTest.bids.push(price);
+          var ok = Math.random() < 0.6 && coins >= price;
+          if (ok) { coins -= price; item.getAuctionData()._state = "won"; return later({ success: true, status: 200, response: { coins: coins } }, 90); }
+          return later({ success: false, status: 461, error: { code: 461 } }, 90);
+        },
+        list: function (item, start, bin, duration) { window.__mbTest.lists.push({ start: start, bin: bin, duration: duration }); item.getAuctionData()._state = "selling"; transferItems.push(item); return later({ success: true, response: { auctionIds: [1] } }); },
+        move: function () { return later({ success: true }); },
+        requestTransferItems: function () { return later({ success: true, response: { items: transferItems.slice() } }); },
+        relistExpiredAuctions: function () { transferItems.forEach(function (it) { if (it.getAuctionData()._state === "expired") it.getAuctionData()._state = "selling"; }); return later({ success: true, response: {} }); },
+        clearSoldItems: function () { transferItems = transferItems.filter(function (it) { return it.getAuctionData()._state !== "sold"; }); return later({ success: true }); },
+        requestWatchedItems: function () { return later({ success: true, response: { items: [] } }); },
+        refreshAuctions: function () { return later({ success: true }); },
+        untarget: function () { return later({ success: true }); },
+        requestMarketData: function (item) { item._limits = { minimum: 10000, maximum: 400000 }; return later({ success: true }); },
+      },
+      User: {
+        getUser: function () { return { coins: { get amount() { return coins; } }, getSelectedPersona: function () { return { isPC: false }; } }; },
+        requestCurrencies: function () { return later({ success: true }); },
+      },
+      Notification: { queue: function (args) { console.log("[EA toast]", args[0]); } },
+      Localization: { localize: function (k) { return k; } },
+    };
+    window.repositories = { Item: {
+      isPileFull: function () { return false; }, getPileSize: function () { return 100; }, numItemsInCache: function () { return transferItems.length; },
+      getTransferItems: function () { return transferItems; }, getUnassignedItems: function () { return []; }, getWatchedItems: function () { return []; }, getClub: function () { return null; },
+    } };
+    // Contrôleur de recherche du marché (pour tester l'import "Sniper cette recherche")
+    function UTMarketSearchFiltersViewController() {
+      var crit = new UTSearchCriteriaDTO(); crit.type = "player"; crit.maskedDefId = 209331; crit.level = "gold"; crit.maxBuy = 31000;
+      this.viewmodel = { searchCriteria: crit, playerData: { id: 209331, firstName: "Mohamed", lastName: "Salah", commonName: "", rating: 89 } };
+    }
+    UTMarketSearchFiltersViewController.prototype.getView = function () { var root = document.querySelector(".ut-market-search-filters-view"); return { getRootElement: function () { return root; } }; };
+    UTMarketSearchFiltersViewController.prototype.viewDidAppear = function () {};
+    UTMarketSearchFiltersViewController.prototype.eSearchSelected = function () {};
+    window.UTMarketSearchFiltersViewController = UTMarketSearchFiltersViewController;
+    window.getAppMain = function () { return { getConfigRepository: function () { return { getConfigObject: function () { return { transferMarket: 20 }; } }; } }; };
+    window.EAConfigurationRepository = { KEY_ITEMS_PER_PAGE: "itemsPerPage", ITEMS_PER_PAGE: { TRANSFER_MARKET: "transferMarket" } };
+
+    // ---- cartes (UTItemView) ----
+    function cardItem(defId, name, rating, extra) {
+      var it = makeItem({ definitionId: defId, name: name, rating: rating, state: "none", tradeId: "0" });
+      it.isValid = function () { return true; }; it.isLimitedUse = function () { return false; }; it.concept = false;
+      it.databaseId = defId & 0xffffff; it.tradable = true;
+      return Object.assign(it, extra || {});
+    }
+    window.__cardItem = cardItem;
+    function UTItemView() { this._root = document.createElement("div"); this._root.className = "small player item ut-item-loaded fake-card-view"; }
+    UTItemView.prototype.getRootElement = function () { return this._root; };
+    UTItemView.prototype.render = function (item) {
+      this._root.innerHTML = '<div class="fake-card-rating">' + item.rating + '</div><div class="fake-card-name">' + item._staticData.name + '</div>';
+    };
+    window.UTItemView = UTItemView;
+
+    // ---- panneau "Mettre en vente" ----
+    function UTQuickListPanelViewController() { this.item = null; }
+    UTQuickListPanelViewController.prototype.getView = function () {
+      var root = document.querySelector(".ut-quick-list-panel-view");
+      var inputs = root.querySelectorAll("input.ut-number-input-control");
+      return {
+        getRootElement: function () { return root; },
+        setBidValue: function (v) { inputs[0].value = String(v); },
+        setBuyNowValue: function (v) { inputs[1].value = String(v); },
+      };
+    };
+    UTQuickListPanelViewController.prototype.renderView = function () {};
+    UTQuickListPanelViewController.prototype.setItem = function (item) { this.item = item; this.renderView(); };
+    window.UTQuickListPanelViewController = UTQuickListPanelViewController;
+
+    // ---- DCE : équipe du défi ----
+    var TYPE = { GK: 0, RB: 3, CB: 5, LB: 7, CDM: 10, RM: 12, CM: 14, LM: 16, CAM: 18, RW: 23, ST: 25, LW: 27 };
+    function formation(name, displayName, names) { return { id: name, name: name, displayName: displayName, positions: names.map(function (n) { return { typeId: TYPE[n], typeName: n }; }), getPosition: function (i) { return this.positions[i] || null; } }; }
+    var f442 = formation("f442", "4-4-2", ["GK", "RB", "CB", "CB", "LB", "RM", "CM", "CM", "LM", "ST", "ST"]);
+    var f4334 = formation("f4334", "4-3-3 (4)", ["GK", "RB", "CB", "CB", "LB", "CM", "CM", "CAM", "RW", "ST", "LW"]);
+    var currentFormation = f442;
+    var slots = []; for (var si = 0; si < 23; si++) { (function (index) { slots.push({ index: index, _item: null, get item() { return this._item || { definitionId: 0 }; }, isValid: function () { return !!this._item; }, isBrick: function () { return false; }, get generalPosition() { return index < 11 ? currentFormation.positions[index].typeId : -1; } }); })(si); }
+    function renderPitch() {
+      var el = document.querySelector(".fake-pitch"); if (!el) return;
+      el.innerHTML = "<b>" + currentFormation.displayName + "</b> · " + slots.slice(0, 11).map(function (s, i) { return currentFormation.positions[i].typeName + ":" + (s._item ? s._item._staticData.name : "—"); }).join(" | ");
+    }
+    var squad = {
+      getSlot: function (i) { return slots[i]; }, getFormation: function () { return currentFormation; },
+      setFormation: function (f) { currentFormation = f; renderPitch(); },
+      removeItemFromSlot: function (i) { slots[i]._item = null; renderPitch(); },
+      setPlayers: function (arr, replace) { arr.length = 23; if (replace) arr.forEach(function (it, i) { if (it) slots[i]._item = null; }); arr.forEach(function (it, i) { if (it && !slots.some(function (s) { return s._item && s._item.databaseId === it.databaseId; })) slots[i]._item = it; }); renderPitch(); },
+    };
+    window.__squad = { slots: slots, squad: squad };
+    var positions = ["GK", "RB", "CB", "CB", "LB", "CM", "CM", "CAM", "RW", "ST", "LW"];
+    var clubItems = positions.slice(0, 8).map(function (p, i) { return cardItem(1001 + i, "Joueur " + i, 80 + i, { possiblePositions: [TYPE[p]], tradable: i % 2 === 0 }); });
+    window.services.Club = { search: function (criteria) { return later({ success: true, response: { items: clubItems.filter(function (it) { return criteria.defId.indexOf(it.definitionId) >= 0; }) } }); } };
+    window.services.Item.searchStorageItems = function () { return later({ success: true, response: { items: [] } }); };
+    window.services.SBC = { saveChallenge: function () { window.__mbTest.saves = (window.__mbTest.saves || 0) + 1; return later({ success: true }); } };
+    window.repositories.Squad = { getFormations: function () { return [f442, f4334]; } };
+    function UTSBCSquadOverviewViewController() {}
+    UTSBCSquadOverviewViewController.prototype.initWithSBCSet = function () { this._challenge = { id: 77, name: "Défi hybride test", squad: squad }; this._squad = squad; };
+    UTSBCSquadOverviewViewController.prototype.getNavigationTitle = function () { return this._challenge ? this._challenge.name : ""; };
+    UTSBCSquadOverviewViewController.prototype.getView = function () { return { getRootElement: function () { return document.querySelector(".fake-sbc"); }, updateChallenge: function () { window.__mbTest.updates = (window.__mbTest.updates || 0) + 1; } }; };
+    window.UTSBCSquadOverviewViewController = UTSBCSquadOverviewViewController;
+    window.__renderPitch = renderPitch;
+  })();
+</script>
+<script src="shim-futbin.js"></script>
+<script src="fut-auto-buyer.user.js"></script>
+<style>
+  body { margin: 0; background: #0f1b2d; color: #fff; font-family: -apple-system, sans-serif; }
+  .fake-app { display: flex; height: 100vh; }
+  .ut-tab-bar-view { width: 110px; background: #07111f; }
+  nav.ut-tab-bar { display: flex; flex-direction: column; gap: 4px; padding: 12px 6px; }
+  .fake-main { flex: 1; padding: 24px; overflow: auto; }
+  .fake-card { background: rgba(255,255,255,0.05); border-radius: 12px; padding: 16px; margin-bottom: 16px; max-width: 640px; }
+  .fake-grid { display: flex; gap: 14px; flex-wrap: wrap; }
+  .fake-card-view { width: 86px; height: 120px; border-radius: 8px; background: linear-gradient(160deg, #d8b25a, #7a5a1c); color: #1a1205; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 700; }
+  .fake-card-rating { font-size: 22px; } .fake-card-name { font-size: 11px; }
+</style>
+</head>
+<body class="futweb landscape">
+  <div class="fake-app">
+    <section class="ut-tab-bar-view">
+      <nav class="ut-tab-bar">
+        <button class="ut-tab-bar-item icon-home selected"><span>Accueil</span></button>
+        <button class="ut-tab-bar-item icon-squad"><span>Équipes</span></button>
+        <button class="ut-tab-bar-item icon-transfer"><span>Transferts</span></button>
+        <button class="ut-tab-bar-item icon-club"><span>Club</span></button>
+      </nav>
+    </section>
+    <main class="fake-main">
+      <div class="fake-card ut-market-search-filters-view"><div class="ut-content"><h2>Marché des transferts (EA)</h2><p>Critères : Salah · Or · achat max 31 000</p></div></div>
+      <div class="fake-card"><h2>Club (EA) : cartes</h2><div class="fake-grid"></div></div>
+      <div class="fake-card fake-sbc"><h2>DCE : équipe du défi</h2><div class="fake-pitch"></div></div>
+      <div class="fake-card">
+        <h2>Liste des transferts (EA)</h2>
+        <ul class="itemList">
+          <li class="listFUTItem selected"><div class="entityContainer"><div class="name">Mbappé</div><div class="rating">91</div></div></li>
+          <li class="listFUTItem"><div class="entityContainer"><div class="name">Salah</div><div class="rating">89</div></div></li>
+        </ul>
+        <div class="ut-quick-list-panel-view"><div class="panelActions">
+          <div class="boughtPrice panelActionRow"><span class="boughtPriceLabel">Acheté</span> <span class="boughtPriceValue">41 000</span></div>
+          <div class="panelActionRow"><label>Départ</label> <input class="ut-number-input-control" value="51500"></div>
+          <div class="panelActionRow"><label>Achat immédiat</label> <input class="ut-number-input-control" value="52000"></div>
+        </div></div>
+      </div>
+    </main>
+  </div>
+  <script>
+    setTimeout(function () { var c = new UTMarketSearchFiltersViewController(); c.viewDidAppear(); }, 2500);
+    setTimeout(function () {
+      var grid = document.querySelector(".fake-grid");
+      [[231747, "Mbappé", 91], [20801, "Ronaldo", 86], [209331, "Salah", 89], [50563992, "Mbappé TOTW", 93]].forEach(function (c) {
+        var view = new UTItemView(); view.render(window.__cardItem(c[0], c[1], c[2])); grid.appendChild(view.getRootElement());
+      });
+      var ql = new UTQuickListPanelViewController(); ql.setItem(window.__cardItem(209331, "Salah", 89)); window.__ql = ql;
+      var sbcCtrl = new UTSBCSquadOverviewViewController(); sbcCtrl.initWithSBCSet(); sbcCtrl.getNavigationTitle(); window.__renderPitch();
+    }, 3000);
+  </script>
+</body>
+</html>
