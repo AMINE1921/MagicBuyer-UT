@@ -6,7 +6,9 @@ import { futbinYear } from "./futbinClient";
 // joueur : identifiant EA exact (resource_id), prix console et PC, prix précédent, plage de prix EA,
 // tendance, type de carte (promo) et marque holo (holographicAnimation). Quelques kilo-octets par
 // réponse, sans page de vérification Cloudflare. Aucune route par identifiant : la carte est retrouvée
-// par son identifiant EA dans les résultats. Chaque fonction renvoie { ok, … } et ne rejette jamais.
+// par son identifiant EA dans les résultats. Les listes filtrées (getFilteredPlayers : nation,
+// championnat, club, notes, qualité, triées par prix) remplacent les listes futbin.com, que FUTBIN
+// refuse aux requêtes du script. Chaque fonction renvoie { ok, … } et ne rejette jamais.
 
 export const FUTBIN_API_ORIGIN = "https://www.futbin.org";
 
@@ -67,6 +69,13 @@ export const promoFromImage = (url) => {
 
 const pricePair = (row, key) => ({ console: toPrice(row[`ps_${key}`]), pc: toPrice(row[`pc_${key}`]) });
 
+// Postes FUTBIN d'une ligne : poste principal puis postes secondaires (tableau ou « RW,RM »).
+const positionsOf = (row) => {
+  const others = Array.isArray(row.alternativePositions) ? row.alternativePositions : String(row.alternativePositions || "").split(",");
+  const names = [row.position].concat(others).map((name) => String(name || "").trim().toUpperCase()).filter(Boolean);
+  return Array.from(new Set(names));
+};
+
 // Cartes d'une réponse de l'API (null si la réponse n'est pas celle attendue).
 export const parseApiCards = (text) => {
   let json;
@@ -111,6 +120,17 @@ export const parseApiCards = (text) => {
           pc: [toNumber(row.pc_MinPrice), toNumber(row.pc_MaxPrice)],
         },
         trend: { console: toTrend(row.ps_PriceTrend), pc: toTrend(row.pc_PriceTrend) },
+        position: String(row.position || "").toUpperCase(),
+        positions: positionsOf(row),
+        // Identifiants EA de la nation, du championnat et du club.
+        nationId: toNumber(row.nation),
+        leagueId: toNumber(row.league),
+        clubId: toNumber(row.club),
+        nationName: String(row.nation_name || row.country_name || ""),
+        leagueName: String(row.league_name || ""),
+        clubName: String(row.club_name || ""),
+        version: String(row.rareTypeName || ""),
+        itemScore: toNumber(row.itemScore),
       };
     })
     .filter((card) => card.eaId > 0);
@@ -144,13 +164,7 @@ const request = (url) =>
     });
   });
 
-const remember = (query, list) => {
-  const at = Date.now();
-  cache.delete(query);
-  cache.set(query, { at, cards: list });
-  while (cache.size > CACHE_MAX) {
-    cache.delete(cache.keys().next().value);
-  }
+const rememberCards = (list, at = Date.now()) => {
   list.forEach((card) => {
     cards.delete(card.eaId);
     cards.set(card.eaId, { at, card });
@@ -158,6 +172,40 @@ const remember = (query, list) => {
   while (cards.size > CARDS_MAX) {
     cards.delete(cards.keys().next().value);
   }
+};
+
+const remember = (query, list) => {
+  const at = Date.now();
+  cache.delete(query);
+  cache.set(query, { at, cards: list });
+  while (cache.size > CACHE_MAX) {
+    cache.delete(cache.keys().next().value);
+  }
+  rememberCards(list, at);
+};
+
+// Requête à l'API. Réponses : { ok, cards } ou { ok: false, blocked | deferred | invalid, status }.
+// Refus (403, 429, 503) : l'API attend 3 min.
+const fetchCards = async (url) => {
+  if (futbinApiPausedUntil()) {
+    return { ok: false, blocked: true, deferred: true, kind: "api" };
+  }
+  await pace();
+  const res = await request(url);
+  if (res.status === 200) {
+    const list = parseApiCards(res.text);
+    if (!list) {
+      // Réponse inattendue (format changé, page d'erreur) : simple échec, les pages FUTBIN prennent le relais.
+      return { ok: false, invalid: true, status: 200 };
+    }
+    pausedUntil = 0;
+    return { ok: true, cards: list };
+  }
+  if (res.status === 403 || res.status === 429 || res.status === 503) {
+    pausedUntil = Date.now() + API_PAUSE;
+    return { ok: false, blocked: true, kind: "api", status: res.status };
+  }
+  return { ok: false, status: res.status };
 };
 
 // Carte lue il y a moins de 60 s (null sinon).
@@ -176,26 +224,49 @@ export const searchFutbinApi = async (query) => {
   if (cached && Date.now() - cached.at < CACHE_MS) {
     return { ok: true, cards: cached.cards, cached: true };
   }
-  if (futbinApiPausedUntil()) {
-    return { ok: false, blocked: true, deferred: true, kind: "api" };
+  const res = await fetchCards(`${FUTBIN_API_ORIGIN}/futbin/api/searchPlayersByName?playername=${encodeURIComponent(key)}`);
+  if (res.ok) {
+    remember(key, res.cards);
   }
-  await pace();
-  const res = await request(`${FUTBIN_API_ORIGIN}/futbin/api/searchPlayersByName?playername=${encodeURIComponent(key)}`);
-  if (res.status === 200) {
-    const list = parseApiCards(res.text);
-    if (!list) {
-      // Réponse inattendue (format changé, page d'erreur) : simple échec, les pages FUTBIN prennent le relais.
-      return { ok: false, invalid: true, status: 200 };
-    }
-    pausedUntil = 0;
-    remember(key, list);
-    return { ok: true, cards: list };
+  return res;
+};
+
+// Liste filtrée (32 cartes par page), les moins chères d'abord pour la plateforme, cartes sans prix
+// exclues : mêmes filtres que les listes futbin.com (identifiants EA de nation, championnat, club ;
+// version « gold », « silver », « bronze » ou une promo ; notes min et max).
+export const filteredPlayersUrl = ({ platform = "console", page = 1, version = "", league = 0, nation = 0, club = 0, minRating = 0, maxRating = 0 } = {}) => {
+  const pc = platform === "pc";
+  const params = [
+    ["platform", pc ? "PC" : "PS"],
+    ["page", Math.max(1, Number(page) || 1)],
+  ];
+  if (version) {
+    params.push(["version", version]);
   }
-  if (res.status === 403 || res.status === 429 || res.status === 503) {
-    pausedUntil = Date.now() + API_PAUSE;
-    return { ok: false, blocked: true, kind: "api", status: res.status };
+  if (league > 0) {
+    params.push(["league", league]);
   }
-  return { ok: false, status: res.status };
+  if (nation > 0) {
+    params.push(["nation", nation]);
+  }
+  if (club > 0) {
+    params.push(["club", club]);
+  }
+  if (minRating > 0 || maxRating > 0) {
+    params.push(["rating", `${minRating || 40}-${maxRating || 99}`]);
+  }
+  params.push([pc ? "pcprice" : "ps4price", "200-15000000"], ["sort", pc ? "pc_price" : "ps_price"], ["order", "asc"]);
+  return `${FUTBIN_API_ORIGIN}/futbin/api/${futbinYear()}/getFilteredPlayers?${params.map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join("&")}`;
+};
+
+// Réponses : { ok, cards, url } ou { ok: false, blocked | deferred | invalid, status, url }.
+export const fetchFilteredPlayers = async (filters = {}) => {
+  const url = filteredPlayersUrl(filters);
+  const res = await fetchCards(url);
+  if (res.ok) {
+    rememberCards(res.cards);
+  }
+  return Object.assign(res, { url });
 };
 
 // Utilisé par les tests.

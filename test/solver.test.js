@@ -50,6 +50,7 @@ import { buyMarketCards, ladderFor, referencePrice, verifyMarketCards } from "..
 import { placeWithConcepts, squadAfterPurchase, verifyPlan } from "../app/core/sbcSquad";
 import { conceptSlots, conceptTargets, conceptTotal, rememberPlanned, plannedFor, replaceConcepts, resetConceptsForTests, slotForBought } from "../app/core/sbcConcepts";
 import { resetFutbinClientForTests } from "../app/prices/futbinClient";
+import { filteredPlayersUrl, futbinApiPausedUntil, resetFutbinApiForTests } from "../app/prices/futbinApi";
 
 global.DOMParser = DOMParser;
 
@@ -1113,35 +1114,148 @@ const main = async () => {
     check(noNeed.ok && !marketPicksOf(noNeed).length, "club suffisant et moins cher : aucune carte à acheter");
   }
 
-  console.log("\n# marché : lecture des listes FUTBIN (cache 10 min, Cloudflare)");
+  // Ligne de getFilteredPlayers (API de l'appli FUTBIN, champs vus le 09/10/2026).
+  const apiListRow = ({ eaId, futbinId = eaId, name, rating, ps, pc = ps, pos = "ST", alt = [], club = 243, nation = 18, league = 53, rareType = 0 }) => ({
+    ID: futbinId,
+    resource_id: eaId,
+    playerid: eaId % 16777216,
+    playername: name,
+    common_name: name,
+    rating,
+    position: pos,
+    alternativePositions: alt,
+    nation,
+    league,
+    club,
+    nation_name: `Nation ${nation}`,
+    league_name: `League ${league}`,
+    club_name: `Club ${club}`,
+    raretype: rareType,
+    rareTypeName: rareType ? "Team of the Week" : "Gold Non Rare",
+    cardImage: `https://cdn3.futbin.com/content/fifa27/img/cards/hd/${rareType}_gold.png`,
+    ps_LCPrice: ps,
+    pc_LCPrice: pc,
+    itemScore: rating * 40,
+  });
+
+  console.log("\n# marché : listes par l'API de l'appli FUTBIN (cache 10 min, pages en secours, blocage)");
   {
     resetMarketForTests();
     resetFutbinClientForTests();
+    resetFutbinApiForTests();
     setMarketPauseForTests(1, 2);
+    const url = filteredPlayersUrl({ minRating: 84, maxRating: 86, nation: 27, version: "gold", platform: "console" });
+    check(
+      /futbin\.org\/futbin\/api\/27\/getFilteredPlayers\?platform=PS&page=1&version=gold&nation=27&rating=84-86&ps4price=200-15000000&sort=ps_price&order=asc$/.test(url),
+      "lien de l'API : filtres, prix console non nul, tri par prix croissant",
+      url
+    );
+    check(/platform=PC&page=1&league=13&pcprice=200-15000000&sort=pc_price&order=asc$/.test(filteredPlayersUrl({ league: 13, platform: "pc" })), "PC : prix PC", filteredPlayersUrl({ league: 13, platform: "pc" }));
     const requests = [];
-    let blockNext = false;
+    let mode = "api";
     global.GM_xmlhttpRequest = (options) => {
       requests.push(options.url);
-      const rating = Number((String(options.url).match(/player_rating=(\d+)-/) || [])[1]);
-      const rows = [1, 2, 3].map((copy) => ({ eaId: 800000 + rating * 10 + copy, name: `F${rating}-${copy}`, rating, ps: String(rating * 100 + copy), is: String(rating * 40) }));
-      const text = blockNext ? "<html><title>Just a moment...</title><body>cf-chl challenge-platform</body></html>" : futbinPage(rows);
-      setTimeout(() => options.onload({ status: blockNext ? 403 : 200, responseText: text }), 1);
+      const target = String(options.url);
+      if (/futbin\.org\/futbin\/api\/27\/getFilteredPlayers/.test(target)) {
+        if (mode === "api") {
+          const rating = Number((target.match(/[?&]rating=(\d+)-/) || [])[1]);
+          const rows = [1, 2, 3].map((copy) => apiListRow({ eaId: 800000 + rating * 10 + copy, name: `F${rating}-${copy}`, rating, ps: rating * 100 + copy, pos: "CM", alt: copy === 1 ? ["CDM", "CAM"] : [], nation: 27, league: 31, club: 45 + copy }));
+          setTimeout(() => options.onload({ status: 200, responseText: JSON.stringify({ data: rows, errorcode: 0 }) }), 1);
+        } else {
+          setTimeout(() => options.onload({ status: mode === "blocked" ? 429 : 404, responseText: '{"error":"x"}' }), 1);
+        }
+        return;
+      }
+      const rating = Number((target.match(/player_rating=(\d+)-/) || [])[1]);
+      const rows = [1, 2, 3].map((copy) => ({ eaId: 900000 + rating * 10 + copy, name: `P${rating}-${copy}`, rating, ps: String(rating * 100 + copy), is: String(rating * 40) }));
+      const text = mode === "blocked" ? "<html><title>Just a moment...</title><body>cf-chl challenge-platform</body></html>" : futbinPage(rows);
+      setTimeout(() => options.onload({ status: mode === "blocked" ? 403 : 200, responseText: text }), 1);
     };
     const queries = [{ key: "r84", minRating: 84, maxRating: 84, known: {} }, { key: "r85", minRating: 85, maxRating: 85, known: {} }];
     const phases = [];
     const first = await loadMarketLists(queries, { platform: "console", onProgress: (progress) => phases.push(progress.page) });
-    check(first.ok && first.lists.length === 2 && first.lists[0].cards.length === 3 && requests.length === 2 && phases.join() === "1,2", "2 listes lues (une requête chacune), progression", { n: first.lists.length, requests: requests.length });
-    check(first.lists[0].details.get(800841).leagueId === 53, "identifiants lus dans les lignes");
+    check(
+      first.ok && first.lists.length === 2 && first.lists[0].cards.length === 3 && requests.length === 2 && requests.every((u) => /futbin\.org/.test(u)) && phases.join() === "1,2",
+      "2 listes lues par l'API (une requête chacune), aucune page futbin.com",
+      { n: first.lists.length, requests }
+    );
+    const details = first.lists[0].details.get(800841);
+    check(details && details.leagueId === 31 && details.nationId === 27 && details.clubId === 46 && details.positions.join() === "CM,CDM,CAM" && details.rareflag == null, "identifiants EA et postes de la ligne de l'API (rareté de base inconnue)", details);
     const again = await loadMarketLists(queries, { platform: "console" });
     check(again.ok && requests.length === 2, "listes gardées 10 min : aucune nouvelle requête");
     const entries = marketEntries(first.lists, { platform: "console", seed: false });
-    check(entries.length === 6 && entries[0].price === 8401 && entries.every((entry) => entry.listedAt > 0), "6 cartes à acheter, la moins chère d'abord", entries.map((entry) => entry.price));
-    blockNext = true;
-    const blocked = await loadMarketLists([{ key: "r86", minRating: 86, maxRating: 86, known: {} }], { platform: "console" });
-    check(!blocked.ok && blocked.blocked, "FUTBIN bloque (Cloudflare) : arrêt sans insister", blocked);
+    check(entries.length === 6 && entries[0].price === 8401 && entries[0].nationId === 27 && entries[0].positions.length === 3 && entries.every((entry) => entry.listedAt > 0), "6 cartes à acheter, la moins chère d'abord, nation et postes connus", entries.map((entry) => entry.price));
+    mode = "pages";
+    const fallback = await loadMarketLists([{ key: "r86", minRating: 86, maxRating: 86, known: {} }], { platform: "console" });
+    const pageCalls = requests.filter((u) => /futbin\.com\/27\/players/.test(u));
+    check(fallback.ok && fallback.lists.length === 1 && fallback.lists[0].cards[0].eaId === 900861 && pageCalls.length === 1, "API sans réponse utile (404) : page futbin.com en secours", { requests: requests.slice(2) });
+    mode = "blocked";
+    const blocked = await loadMarketLists([{ key: "r87", minRating: 87, maxRating: 87, known: {} }], { platform: "console" });
+    check(!blocked.ok && blocked.blocked && futbinApiPausedUntil() > Date.now(), "API refusée (429) et page bloquée (Cloudflare) : arrêt sans insister", blocked);
     delete global.GM_xmlhttpRequest;
     resetMarketForTests();
     resetFutbinClientForTests();
+    resetFutbinApiForTests();
+  }
+
+  console.log("\n# solveur : défi « Como 1907 - AS Roma » (2 Italiens min.), club sans Italien → Italiens du marché par l'API");
+  {
+    uid = 0;
+    resetMarketForTests();
+    resetFutbinClientForTests();
+    resetFutbinApiForTests();
+    setMarketPauseForTests(1, 2);
+    const requirements = [
+      req({ [KEYS.NATION_ID]: 27 }, { count: 2 }),
+      req({ [KEYS.LEAGUE_COUNT]: 4 }, { scope: SCOPE.LOWER }),
+      req({ [KEYS.PLAYER_LEVEL]: 3 }, { count: 1 }),
+      req({ [KEYS.PLAYER_QUALITY]: 2 }),
+      req({ [KEYS.CHEMISTRY_POINTS]: 18 }),
+    ];
+    // Club : non échangeables de 4 championnats (NWSL, GPFBL, Serie A, Liga MX), aucun Italien ni gardien.
+    const leagues = [2216, 2236, 31, 341];
+    const nations = [95, 54, 45, 108, 47, 195, 83];
+    const outfield = [3, 5, 5, 7, 14, 14, 14, 23, 25, 27];
+    const club = [];
+    for (let index = 0; index < 30; index += 1) {
+      club.push(P(68 + (index % 16), { positions: [outfield[index % outfield.length]], tradable: false, league: leagues[index % 4], nation: nations[index % 7], club: 500 + (index % 12) }));
+    }
+    const clubOnly = await run(requirements, club, { options: { seed: 5, timeBudgetMs: 1500, chemMinMs: 300 } });
+    check(!clubOnly.feasible && clubOnly.failing.some((fail) => fail.actual === 0 && fail.target === 2), "club seul : impossible, 0 Italien sur 2", clubOnly.failing);
+    const queries = marketQueries(requirements);
+    check(queries.some((query) => query.nation === 27), "liste du marché demandée : Italiens", queries);
+    const requests = [];
+    global.GM_xmlhttpRequest = (options) => {
+      requests.push(options.url);
+      const target = String(options.url);
+      const italians = /[?&]nation=27(&|$)/.test(target);
+      const gold = /[?&]version=gold(&|$)/.test(target);
+      const rows = italians
+        ? [
+            { eaId: 50001, name: "Portiere", rating: 76, ps: 650, pos: "GK" },
+            { eaId: 50002, name: "Difensore", rating: 77, ps: 700, pos: "CB", alt: ["RB"] },
+            { eaId: 50003, name: "Centrocampista", rating: 78, ps: 700, pos: "CM", alt: ["CDM"] },
+            { eaId: 50004, name: "Attaccante", rating: 80, ps: 750, pos: "ST" },
+            { eaId: 50005, name: "Argento", rating: 70, ps: 250, pos: "CM" },
+          ]
+            .filter((row) => !gold || row.rating >= 75)
+            .map((row) => apiListRow(Object.assign({ nation: 27, league: 31, club: 45 }, row)))
+        : [];
+      setTimeout(() => options.onload({ status: 200, responseText: JSON.stringify({ data: rows, errorcode: 0 }) }), 1);
+    };
+    const lists = await loadMarketLists(queries, { platform: "console" });
+    const entries = marketEntries(lists.lists, { platform: "console", seed: false, requirements });
+    check(lists.ok && !lists.blocked && entries.some((entry) => entry.nationId === 27) && requests.every((u) => /futbin\.org/.test(u)), "Italiens du marché lus par l'API, aucune page futbin.com", { entries: entries.length, requests });
+    const mixed = await run(requirements, club.concat(entries), { options: { seed: 5, timeBudgetMs: 2500, chemMinMs: 300 } });
+    const bought = marketPicksOf(mixed);
+    const italiansIn = mixed.squad.filter((pick) => pick.entry && pick.entry.nationId === 27).length;
+    check(mixed.ok && italiansIn >= 2 && bought.length >= 2 && bought.length <= 4, "équipe valide : 2 Italiens achetés au moins, le reste du club", { reason: mixed.reason, italians: italiansIn, bought: bought.map((pick) => pick.entry.name), failing: mixed.failing });
+    const outcome = chooseOutcome(clubOnly, mixed);
+    check(outcome.market && outcome.reason === "needed", "club + marché retenu (indispensable)", outcome.reason);
+    delete global.GM_xmlhttpRequest;
+    resetMarketForTests();
+    resetFutbinClientForTests();
+    resetFutbinApiForTests();
   }
 
   console.log("\n# achat des manquants : paliers, réserve, codes d'arrêt, vérification EA");

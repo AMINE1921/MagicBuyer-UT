@@ -1,3 +1,4 @@
+import { fetchFilteredPlayers, filteredPlayersUrl } from "../prices/futbinApi";
 import { fetchFutbinText, futbinYear } from "../prices/futbinClient";
 import { FUTBIN_ORIGIN, eaIdFromImage, htmlToDocument, parsePlayerListText } from "../prices/futbinParse";
 import { pricePlatform, seedFutbinPrice } from "../prices/priceService";
@@ -8,10 +9,11 @@ import { compileChecks, tierOf } from "./sbcEval";
 import { QUALITY, SCOPE } from "./sbcRequirements";
 
 // Cartes du marché proposées par le solveur quand le club ne suffit pas (ou qu'acheter coûte moins
-// cher) : listes FUTBIN triées par prix croissant (les 30 moins chères d'une note, d'un championnat,
+// cher) : listes FUTBIN triées par prix croissant (les 32 moins chères d'une note, d'un championnat,
 // d'une nation ou d'un club), lues seulement pour les notes et filtres utiles aux exigences, espacées
-// et gardées 10 min. Aucune recherche sur le marché EA pour planifier : l'achat (sbcBuy.js) ne se fait
-// qu'après confirmation.
+// et gardées 10 min. Lues par l'API de l'appli FUTBIN (JSON avec les identifiants EA) ; la page
+// futbin.com, que FUTBIN refuse souvent aux requêtes du script (403), ne sert qu'en secours. Aucune
+// recherche sur le marché EA pour planifier : l'achat (sbcBuy.js) ne se fait qu'après confirmation.
 // Une carte du marché coûte son prix FUTBIN + la marge DCE + un petit surcoût fixe : à valeur égale,
 // les cartes du club (non échangeables, doublons, fourrage) restent toujours préférées.
 
@@ -202,6 +204,31 @@ export const rowDetails = (html) => {
 
 const pauseMs = () => pause.min + Math.random() * Math.max(0, pause.max - pause.min);
 
+// Carte de l'API FUTBIN → carte de liste (forme des listes futbin.com) et attributs EA de sa ligne.
+const apiListCard = (card) => ({
+  eaId: card.eaId,
+  futbinId: card.futbinId,
+  name: card.name,
+  rating: card.rating,
+  position: card.position,
+  prices: card.prices,
+  version: card.version,
+  itemScore: card.itemScore,
+  url: card.url,
+  league: card.leagueName,
+  nation: card.nationName,
+  club: card.clubName,
+});
+
+const apiListDetails = (card) => ({
+  clubId: card.clubId,
+  nationId: card.nationId,
+  leagueId: card.leagueId,
+  positions: card.positions,
+  // Promo (TOTW = 3, icône = 12…). Carte de base : rare ou non, inconnu ici (relu par EA avant l'achat).
+  rareflag: card.rareType > 0 ? card.rareType : null,
+});
+
 // Lit les listes demandées (cache 10 min par lien). onProgress({ phase: "market", page, pages }).
 // Résultat : { ok, lists: [{ query, cards, details, at }], errors, blocked, cancelled }.
 export const loadMarketLists = async (queries, { token = null, onProgress = () => {}, platform = pricePlatform() } = {}) => {
@@ -213,9 +240,11 @@ export const loadMarketLists = async (queries, { token = null, onProgress = () =
       return { ok: false, cancelled: true, lists, errors };
     }
     const query = queries[index];
-    const url = marketListUrl(Object.assign({}, query, { platform }));
-    const cached = listCache.get(url);
-    if (cached && Date.now() - cached.at < MARKET_TTL) {
+    const filters = Object.assign({}, query, { platform });
+    const apiUrl = filteredPlayersUrl(filters);
+    const url = marketListUrl(filters);
+    const cached = [listCache.get(apiUrl), listCache.get(url)].find((entry) => entry && Date.now() - entry.at < MARKET_TTL);
+    if (cached) {
       lists.push({ query, cards: cached.cards, details: cached.details, at: cached.at });
       continue;
     }
@@ -224,6 +253,13 @@ export const loadMarketLists = async (queries, { token = null, onProgress = () =
       return { ok: false, cancelled: true, lists, errors };
     }
     fetched += 1;
+    const api = await fetchFilteredPlayers(filters);
+    if (api.ok) {
+      const entry = { at: Date.now(), cards: api.cards.map(apiListCard), details: new Map(api.cards.map((card) => [card.eaId, apiListDetails(card)])) };
+      listCache.set(apiUrl, entry);
+      lists.push({ query, cards: entry.cards, details: entry.details, at: entry.at });
+      continue;
+    }
     const res = await fetchFutbinText(url, { allowIframe: true });
     if (!res.ok) {
       errors.push({ query, status: res.status || 0, blocked: !!res.blocked });

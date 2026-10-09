@@ -187,6 +187,13 @@ npm run build:prod
 
 Le script est généré dans `dist/fut-auto-buyer.user.js` (en-tête Tampermonkey dans `tampermonkey-header.js`).
 
+## Nouveautés 5.4.4
+
+- Solveur DCE : les cartes à acheter (joueurs qui manquent au club, ex. « Italie : 2 min. ») sont lues par l'API
+  de l'appli FUTBIN (listes filtrées par nation, championnat, club, notes et qualité, triées par prix, avec les
+  identifiants EA et les postes). Les listes futbin.com, que FUTBIN refuse aux requêtes du script (403), ne servent
+  plus qu'en secours : le solveur ne s'arrête plus sur « FUTBIN bloque la lecture des prix ».
+
 ## Nouveautés 5.4.3
 
 - Tableau « Prime holo » plus compact : la colonne « Achat max » tient dans le panneau (promo retirée des lignes,

@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        MagicBuyer-UT
-// @version     5.4.3
+// @version     5.4.4
 // @author      AMINE1921
 // @description Sniper / autobuyer pour le web app EA FC 27 Ultimate Team
 // @match       https://www.ea.com/*/ea-sports-fc/ultimate-team/web-app*
