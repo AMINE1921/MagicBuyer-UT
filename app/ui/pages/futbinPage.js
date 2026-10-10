@@ -281,7 +281,7 @@ const runTest = async (out) => {
     log.warn(t("ui.futbinTestLog", { message: `${message}.` }));
     return;
   }
-  const via = price.via === "iframe" ? t("ui.futbinViaIframe") : t("ui.futbinViaDirect");
+  const via = price.via === "iframe" ? t("ui.futbinViaIframe") : price.via === "relay" ? t("ui.futbinViaRelay") : t("ui.futbinViaDirect");
   const age = price.updatedAgoSec ? ` · ${t("ui.futbinUpdatedAgo", { n: Math.round(price.updatedAgoSec / 60) })}` : "";
   const name = resolved.link.name || TEST_CARD.name;
   out.innerHTML = `<div class="mb-note" style="margin-top:8px">✓ ${t("ui.futbinTestOk", {

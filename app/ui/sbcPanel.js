@@ -251,7 +251,7 @@ const renderTable = () => {
     : t("sbc.formationKept");
   const title = session.challengeName ? `${t("sbc.solutionName", { name: escapeHtml(session.challengeName) })} · ` : "";
   const count = plural(session.entries.length, "sbc.playerCountOne", "sbc.playerCountMany");
-  const via = session.via === "iframe" ? t("sbc.viaIframe") : t("sbc.viaDirect");
+  const via = session.via === "iframe" ? t("sbc.viaIframe") : session.via === "relay" ? t("sbc.viaRelay") : t("sbc.viaDirect");
   body.innerHTML = `<p class="mb-sbc-meta">${title}${formation} · ${count} · ${via}</p>
     <table class="mb-sbc-table">
       <thead><tr><th>${t("sbc.colPosition")}</th><th>${t("sbc.colPlayer")}</th><th>${t("sbc.colStatus")}</th><th class="is-num">FUTBIN</th><th class="is-num">${t("sbc.colMax")}</th></tr></thead>

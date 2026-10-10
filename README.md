@@ -187,6 +187,15 @@ npm run build:prod
 
 Le script est généré dans `dist/fut-auto-buyer.user.js` (en-tête Tampermonkey dans `tampermonkey-header.js`).
 
+## Nouveautés 5.4.6
+
+- Galerie (et autres pages futbin.com) : FUTBIN refuse ses pages aux requêtes du script (403, vérification
+  Cloudflare) et l'iframe cachée ne passe plus (Chrome n'y envoie pas les cookies du site). Le script ouvre alors
+  un onglet futbin.com en arrière-plan et y fait la requête comme ton navigateur, puis récupère la réponse par le
+  stockage de Tampermonkey : galerie, collections, recherche de joueurs d'une collection, pages joueur ou listes en
+  secours. Une requête à la fois, onglet fermé tout seul après 5 min sans usage. Réglage : onglet FUTBIN →
+  « Secours : onglet FUTBIN ». Tampermonkey demande d'autoriser l'ouverture d'onglets à la mise à jour.
+
 ## Nouveautés 5.4.5
 
 - Recherche de joueur (onglet Cible) par l'API de l'appli FUTBIN : toutes les versions en ~0,2 s, au lieu d'attendre

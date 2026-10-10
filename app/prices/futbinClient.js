@@ -2,6 +2,7 @@ import { getFutShortYear } from "../app.constants";
 import { getSettings } from "../core/settings";
 import { sendExternalRequest } from "../services/externalRequest";
 import { fetchViaIframe } from "../ui/futbinBridge";
+import { relayAvailable, relayFetch } from "./futbinRelay";
 import {
   FUTBIN_ORIGIN,
   absoluteUrl,
@@ -16,8 +17,9 @@ import {
   parseSquadText,
 } from "./futbinParse";
 
-// Accès réseau à FUTBIN : requête directe (avec tes cookies FUTBIN), puis iframe cachée
-// en secours si Cloudflare bloque. Chaque fonction renvoie { ok, … } et ne rejette jamais.
+// Accès réseau à FUTBIN : requête directe (avec tes cookies FUTBIN), puis, si FUTBIN la refuse,
+// l'onglet relais futbin.com (futbinRelay.js) et en dernier l'iframe cachée. Chaque fonction renvoie
+// { ok, … } et ne rejette jamais.
 
 export const futbinYear = () => getFutShortYear() || "27";
 
@@ -170,6 +172,17 @@ export const fetchFutbinText = async (url, { json = false, allowIframe = true, f
   }
   if (!allowIframe) {
     return { ok: false, blocked: true, deferred: true, status: 403, kind };
+  }
+  // Onglet relais : la page futbin.com fait elle-même la requête (cookies et vérification du navigateur).
+  if (getSettings().prices.iframeFallback && relayAvailable()) {
+    const relayed = await relayFetch(url, { method, body, json });
+    if (relayed && relayed.ok && !looksBlocked(relayed.text)) {
+      requestCount += 1;
+      return { ok: true, text: relayed.text, via: "relay" };
+    }
+    if (relayed && relayed.status === 404) {
+      return { ok: false, notFound: true, status: 404 };
+    }
   }
   const frameUrl = method === "POST" ? postFrameUrl(url, body) : url;
   const payload = frameUrl ? await viaIframe(frameUrl, 20000, method === "POST" ? 10000 : undefined) : null;

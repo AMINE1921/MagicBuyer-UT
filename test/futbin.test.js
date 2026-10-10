@@ -5,6 +5,8 @@ import * as parse from "../app/prices/futbinParse";
 import * as service from "../app/prices/priceService";
 import * as futbinApi from "../app/prices/futbinApi";
 import * as holoScan from "../app/core/holoScan";
+import * as relay from "../app/prices/futbinRelay";
+import { fetchFutbinText } from "../app/prices/futbinClient";
 import * as settings from "../app/core/settings";
 import * as filters from "../app/core/filters";
 import * as engine from "../app/core/engine";
@@ -1609,6 +1611,69 @@ const main = async () => {
     const ids = snapshot.cards.map((card) => card.eaId).sort((a, b) => a - b);
     check(ids.join() === "231747,50563395,67340611" && !snapshot.message, "3 versions de Mbappé (base, Destin glorieux, holo), homonyme écarté", { ids, message: snapshot.message });
     check(!futbin.requests.some((r) => /players\/search/.test(r.url)), "aucune recherche futbin.com", futbin.requests.map((r) => r.url));
+  }
+
+  console.log("\n# FUTBIN refuse le script : onglet relais futbin.com (galerie, recherche de joueurs en POST)");
+  {
+    baseSettings();
+    resetFutbin();
+    relay.resetRelayForTests();
+    settings.setSetting("prices.iframeFallback", true);
+    // Stockage partagé de Tampermonkey simulé (valeurs + écouteurs entre onglets).
+    const store = new Map();
+    const listeners = [];
+    global.GM_getValue = (key, fallback) => (store.has(key) ? store.get(key) : fallback);
+    global.GM_setValue = (key, value) => {
+      const old = store.get(key);
+      store.set(key, value);
+      listeners.filter((entry) => entry.key === key).forEach((entry) => setTimeout(() => entry.fn(key, old, value, true), 1));
+    };
+    global.GM_addValueChangeListener = (key, fn) => {
+      listeners.push({ key, fn, id: listeners.length + 1 });
+      return listeners.length;
+    };
+    global.GM_removeValueChangeListener = (id) => {
+      const index = listeners.findIndex((entry) => entry.id === id);
+      if (index >= 0) {
+        listeners.splice(index, 1);
+      }
+    };
+    // Onglet futbin.com simulé : vrai code du relais (bootFutbinRelay), pages servies par fetch.
+    const opened = [];
+    const relayed = [];
+    global.GM_openInTab = (url) => {
+      opened.push(url);
+      const win = {};
+      win.top = win;
+      global.window = win;
+      global.location = { hash: "#mb-relay" };
+      const session = new Map();
+      global.sessionStorage = { getItem: (key) => session.get(key) || null, setItem: (key, value) => session.set(key, value) };
+      global.fetch = async (path, options) => {
+        relayed.push({ path, method: options.method, body: options.body });
+        const page = futbin.pages.get(`https://www.futbin.com${path}`);
+        return { status: page ? 200 : 404, text: async () => page || "Not found" };
+      };
+      setTimeout(() => relay.bootFutbinRelay(), 5);
+      return { closed: false, close() { this.closed = true; } };
+    };
+    futbin.blocked = true;
+    futbin.pages.set("https://www.futbin.com/27/gallery", "<html><body>galerie servie par l'onglet</body></html>");
+    futbin.pages.set("https://www.futbin.com/27/gallery/set-player-search/1", '{"items":[],"totalItems":0}');
+    const index = await fetchFutbinText("https://www.futbin.com/27/gallery", { forceDirect: true });
+    check(index.ok && index.via === "relay" && /galerie servie/.test(index.text), "requête directe refusée (Cloudflare) : page lue par l'onglet relais", { ok: index.ok, via: index.via, status: index.status });
+    check(opened.length === 1 && /^https:\/\/www\.futbin\.com\/27\/gallery#mb-relay$/.test(opened[0]), "un onglet futbin.com ouvert en arrière-plan (marqué #mb-relay)", opened);
+    const pool = await fetchFutbinText("https://www.futbin.com/27/gallery/set-player-search/1", { json: true, method: "POST", body: '{"sort":"ItemScoreDesc","page":2}', forceDirect: true });
+    check(pool.ok && pool.text === '{"items":[],"totalItems":0}' && opened.length === 1, "recherche de joueurs (POST) par le même onglet, sans en rouvrir", { ok: pool.ok, opened: opened.length });
+    check(relayed.some((call) => call.method === "POST" && /set-player-search\/1$/.test(call.path) && /page":2/.test(call.body)), "POST envoyé depuis futbin.com avec le corps demandé", relayed);
+    const missing = await fetchFutbinText("https://www.futbin.com/27/gallery/set/999/nope", { forceDirect: true });
+    check(!missing.ok && missing.notFound, "page absente de FUTBIN : introuvable, sans attente", missing);
+    check(!relay.relayAllowed("/27/players", "POST") && relay.relayAllowed("/27/gallery/set-player-search/12", "POST") && relay.relayPath("https://evil.example/27/gallery") === null, "relais limité à futbin.com, POST seulement pour la galerie");
+    const before = relayed.length;
+    const searchOnly = await fetchFutbinText("https://www.futbin.com/players/search?query=x", { allowIframe: false, forceDirect: true });
+    check(!searchOnly.ok && relayed.length === before, "recherche rapide (sans secours) : pas d'onglet relais", { relayed: relayed.length - before });
+    ["GM_getValue", "GM_setValue", "GM_addValueChangeListener", "GM_removeValueChangeListener", "GM_openInTab", "window", "location", "sessionStorage", "fetch"].forEach((name) => delete global[name]);
+    relay.resetRelayForTests();
   }
 
   console.log(`\n${passes} OK, ${failures} échec(s)`);

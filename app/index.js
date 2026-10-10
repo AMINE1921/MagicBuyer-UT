@@ -6,6 +6,7 @@ import { getPage } from "./core/page";
 import { flushSettings, getSettings } from "./core/settings";
 import { hookCardPrices, tickBuyCheck } from "./ui/cardPrices";
 import { bootFutbinBridge, isFutbinPage } from "./ui/futbinBridge";
+import { bootFutbinRelay } from "./prices/futbinRelay";
 import { tickEaHooks } from "./ui/eaHooks";
 import { ensureHud } from "./ui/hud";
 import { ensurePanel, injectStyles, openPanel } from "./ui/panel";
@@ -75,6 +76,7 @@ const boot = () => {
 
 if (isFutbinPage()) {
   bootFutbinBridge();
+  bootFutbinRelay();
 } else if (isTopFrame() && !window.__mbBooted) {
   window.__mbBooted = true;
   boot();

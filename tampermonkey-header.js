@@ -2,7 +2,7 @@ module.exports = {
   headers: {
     name: "MagicBuyer-UT",
     namespace: "http://tampermonkey.net/",
-    version: "5.4.5",
+    version: "5.4.6",
     description: "Sniper / autobuyer pour le web app EA FC 27 Ultimate Team",
     author: "AMINE1921",
     match: [
@@ -13,7 +13,15 @@ module.exports = {
     "run-at": "document-start",
     sandbox: "JavaScript",
     "inject-into": "page",
-    grant: ["GM_xmlhttpRequest", "GM_getValue", "GM_setValue", "unsafeWindow"],
+    grant: [
+      "GM_xmlhttpRequest",
+      "GM_getValue",
+      "GM_setValue",
+      "GM_openInTab",
+      "GM_addValueChangeListener",
+      "GM_removeValueChangeListener",
+      "unsafeWindow",
+    ],
     connect: [
       "ea.com",
       "futbin.com",

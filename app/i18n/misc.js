@@ -65,6 +65,7 @@ export default {
     "misc.filterClub": "club {id}",
     "misc.filterStyle": "style {name}",
     "misc.filterHoloOnly": "holo seulement",
+    "misc.futbinRelayOpened": "FUTBIN refuse les requêtes du script : onglet futbin.com ouvert en arrière-plan pour lire ses pages (fermé tout seul après 5 min sans usage).",
     "misc.filterHoloNone": "sans holo",
     // Styles de chimie (noms de secours quand le web app ne donne pas les siens).
     "misc.chemStyle250": "Basique",
@@ -203,6 +204,7 @@ export default {
     "misc.filterClub": "club {id}",
     "misc.filterStyle": "style {name}",
     "misc.filterHoloOnly": "holo only",
+    "misc.futbinRelayOpened": "FUTBIN refuses the script's requests: futbin.com tab opened in the background to read its pages (closed automatically after 5 idle minutes).",
     "misc.filterHoloNone": "no holo",
     // Chemistry styles (fallback names when the web app doesn't give its own).
     "misc.chemStyle250": "Basic",
